@@ -9,7 +9,7 @@ import os
 # CONFIGURATION
 # ───────────────────────────────────────────────
 
-SEARCHES_TO_DO = 30
+SEARCHES_TO_DO = 35
 PHRASES_FILE = "phrases.json"          # ← must be in the same folder
 
 MIN_DELAY = 15
