@@ -19,12 +19,18 @@ import pyautogui
 stop_program = False
 
 def on_click():
-    """Callback function that prints mouse position when clicked."""
+    """
+    Funkce vyvolaná při kliknutí levým tlačítkem myši (tzv. Callback).
+    Zjišťuje aktuální souřadnice kurzoru přes pyautogui a vypisuje je do konzole.
+    """
     pos = pyautogui.position()
     print(f"Click detected at position: {pos}")
 
 def on_middle_click():
-    """Stop the program on middle click."""
+    """
+    Přerušovací funkce vyvolaná prostředním tlačítkem myši.
+    Nastaví globální přepínač 'stop_program', čímž ukončí hlavní naslouchávací smyčku.
+    """
     global stop_program
     stop_program = True
     print("\nStopped by middle click.")

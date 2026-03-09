@@ -56,12 +56,15 @@ except Exception as e:
     exit(1)
 
 def human_like_mouse_jiggle():
-    """Very subtle mouse movements — stays roughly over/near the search bar"""
+    """
+    Funkce pro velmi jemné pohyby myší (simulace lidského faktoru).
+    Zvyšuje důvěryhodnost bota tím, že neudržuje myš zcela nehybně.
+    """
     try:
-        # Get starting position so we can stay close to it
+        # Získání výchozí pozice, abychom se k ní mohli na konci vrátit
         start_x, start_y = pyautogui.position()
     except:
-        return  # skip if can't get position
+        return  # Přerušení, pokud pozici nelze zjistit
 
     for _ in range(random.randint(3, 8)):   # more frequent but tiny moves
         # Very small offsets — almost unnoticeable but looks more natural
@@ -90,30 +93,33 @@ time.sleep(8)
 
 try:
     for i in range(SEARCHES_TO_DO):
-        # Choose random phrase
+        # 1. Výběr náhodného vyhledávacího dotazu ze seznamu 'phrases'
         phrase = random.choice(phrases)
         
-        pyautogui.click()  # ensure search box is active (sometimes needed)
+        # 2. Aktivace vyhledávacího pole kliknutím a krátké posečkání
+        pyautogui.click()
         time.sleep(0.12 + random.uniform(0, 0.20))
         
-        # Select all text in the search box
+        # 3. Vybrání případného předchozího textu (Ctrl+A)
         pyautogui.hotkey('ctrl', 'a')
         time.sleep(0.12 + random.uniform(0, 0.20))
 
 
-        # Type the phrase slowly (human-like typing speed)
+        # 4. Manuální vložení textu po jednotlivých znacích
+        # Rychlost je mírně náhodná pro simulaci psaní člověkem
         pyautogui.write(phrase, interval=random.uniform(0.04, 0.11))
         time.sleep(0.25 + random.uniform(0, 0.35))
 
-        # Submit search
+        # 5. Odeslání požadavku klávesou Enter
         pyautogui.press('enter')
         print(f"[{i+1:2d}/{SEARCHES_TO_DO}] → {phrase}")
 
-        # ~60-70% chance of very subtle mouse movement
+        # 6. Náhodný pohyb myší: s šancí zhruba 68 % pohne myší na pozadí (simuluje čtení výsledků)
         if random.random() < 0.68:
             human_like_mouse_jiggle()
 
-        # Realistic random delay between searches
+        # 7. Časové okno pro prodlevu mezi hledáními
+        # Slouží k prevenci odhalení bota kvůli příliš rychlým a pravidelným dotazům
         wait_time = random.randint(MIN_DELAY, MAX_DELAY)
         print(f"    → waiting {wait_time} seconds...")
         time.sleep(wait_time)
