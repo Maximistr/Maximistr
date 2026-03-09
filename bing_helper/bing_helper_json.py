@@ -1,8 +1,31 @@
+import subprocess
+import sys
+def ensure_module_installed(module_name, package_name=None):
+    """
+    Check if a module is installed, and install it if not.
+    
+    Args:
+        module_name: The name used in import statements
+        package_name: The pip package name (if different from module_name)
+    """
+    if package_name is None:
+        package_name = module_name
+    
+    try:
+        __import__(module_name)
+        print(f"✓ {package_name} is already installed")
+    except ImportError:
+        print(f"✗ {package_name} not found. Installing...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+        print(f"✓ {package_name} installed successfully")
+# Ensure required modules are installed
+print("Checking required modules...\n")
+ensure_module_installed("pyautogui")
+# Now import all modules
 import pyautogui
 import time
 import random
 import json
-import subprocess
 import os
 
 # ───────────────────────────────────────────────
@@ -11,6 +34,7 @@ import os
 
 SEARCHES_TO_DO = 35
 PHRASES_FILE = "phrases.json"          # ← must be in the same folder
+SEARCH_BOX_COORDS = 278, 155              # Coordinates of Bing search box (x, y), use test.py to find yours
 
 MIN_DELAY = 15
 MAX_DELAY = 30
@@ -57,7 +81,7 @@ print("\nOpening Bing.com in Edge...\n")
 
 subprocess.Popen(["C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", "https://www.bing.com/search?q=."])
 time.sleep(1)  # Wait for Edge to open and load Bing
-pyautogui.moveTo(278, 155)  # Move mouse to Bing search box area
+pyautogui.moveTo(SEARCH_BOX_COORDS)  # Move mouse to Bing search box area
 time.sleep(1)
 
 print("Starting in 8 seconds...\n")
@@ -100,5 +124,7 @@ try:
 
 except KeyboardInterrupt:
     print("\nStopped by user (Ctrl+C pressed).")
+except ModuleNotFoundError:
+    print("\nModuleNotFoundError: Please install the required modules.")
 except Exception as e:
     print(f"\nUnexpected error: {e}")
