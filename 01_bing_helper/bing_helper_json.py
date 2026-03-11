@@ -39,6 +39,7 @@ SEARCH_BOX_COORDS = 278, 155              # Coordinates of Bing search box (x, y
 MIN_DELAY = 15
 MAX_DELAY = 30
 
+used_phrases = []
 # ───────────────────────────────────────────────
 
 # Load phrases from JSON file
@@ -95,6 +96,9 @@ try:
     for i in range(SEARCHES_TO_DO):
         # 1. Výběr náhodného vyhledávacího dotazu ze seznamu 'phrases'
         phrase = random.choice(phrases)
+        while phrase in used_phrases:
+            phrase = random.choice(phrases)
+        used_phrases.append(phrase)
         
         # 2. Aktivace vyhledávacího pole kliknutím a krátké posečkání
         pyautogui.click()
