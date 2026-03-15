@@ -6,8 +6,9 @@ pygame.init()
 SCREEN_WIDTH, SCREEN_HEIGHT = 1200, 600
 FPS = 60
 FOV = math.pi / 3
-NUM_RAYS = 120
-MAX_RAY_DISTANCE = 30
+NUM_RAYS = 80
+MAX_RAY_DISTANCE = 20
+RAY_STEP = 0.05
 MAP_WIDTH, MAP_HEIGHT = 25, 25
 
 def generate_map(width, height):
@@ -44,6 +45,14 @@ def generate_map(width, height):
         for y in range(min(y1, y2), max(y1, y2) + 1):
             if x2 < width and y < height:
                 game_map[int(y)][int(x2)] = 0
+    
+    # Ensure perimeter walls
+    for x in range(width):
+        game_map[0][x] = 1
+        game_map[height - 1][x] = 1
+    for y in range(height):
+        game_map[y][0] = 1
+        game_map[y][width - 1] = 1
     
     return game_map
 
@@ -123,7 +132,7 @@ def generate_enemies(num_enemies=5):
         
         # Don't spawn too close to player
         if walkable and math.sqrt((px - x)**2 + (py - y)**2) > 4:
-            enemies.append({'x': x, 'y': y, 'health': 20, 'speed': 0.05})
+            enemies.append({'x': x, 'y': y, 'health': 50, 'speed': 0.05})
         
         attempts += 1
     return enemies
@@ -134,7 +143,7 @@ enemies = generate_enemies(5)
 def cast_ray(x, y, angle):
     """Cast a ray and return distance and wall type"""
     sin_a, cos_a = math.sin(angle), math.cos(angle)
-    distance = 0.01
+    distance = RAY_STEP
     
     while distance < MAX_RAY_DISTANCE:
         check_x = x + distance * cos_a
@@ -146,7 +155,7 @@ def cast_ray(x, y, angle):
         if GAME_MAP[grid_y][grid_x] == 1:
             wall_type = 'v' if (check_x - grid_x) < 0.5 else 'h'
             return (distance, wall_type)
-        distance += 0.01
+        distance += RAY_STEP
     
     return (MAX_RAY_DISTANCE, 'v')
 
@@ -192,7 +201,7 @@ def update_player(keys):
     # Check for coin collection
     coins_to_remove = []
     for i, (cx, cy) in enumerate(coins):
-        if math.sqrt((player['x'] - cx)**2 + (player['y'] - cy)**2) < 0.3:
+        if math.sqrt((player['x'] - cx)**2 + (player['y'] - cy)**2) < 0.6:
             coins_to_remove.append(i)
             score += 10
     
@@ -230,8 +239,11 @@ def shoot():
     """Shoot in the direction the player is looking"""
     global score
     shot_dist = 30
-    enemies_to_remove = []
+    closest_enemy = None
+    closest_dist = shot_dist
+    closest_idx = -1
     
+    # Find closest enemy in crosshair
     for i, enemy in enumerate(enemies):
         dx = enemy['x'] - player['x']
         dy = enemy['y'] - player['y']
@@ -245,15 +257,18 @@ def shoot():
         while angle_diff < -math.pi:
             angle_diff += 2 * math.pi
         
-        # Hit if in center of screen and close enough
-        if abs(angle_diff) < 0.1 and dist < shot_dist:
-            enemy['health'] -= 50
-            if enemy['health'] <= 0:
-                enemies_to_remove.append(i)
-                score += 50
+        # Check if in crosshair and closer than current closest
+        if abs(angle_diff) < 0.1 and dist < closest_dist:
+            closest_enemy = enemy
+            closest_dist = dist
+            closest_idx = i
     
-    for i in reversed(enemies_to_remove):
-        enemies.pop(i)
+    # Only damage the closest enemy
+    if closest_enemy is not None:
+        closest_enemy['health'] -= 20
+        if closest_enemy['health'] <= 0:
+            enemies.pop(closest_idx)
+            score += 50
 
 
 def render(screen):
@@ -333,15 +348,26 @@ def render(screen):
                 enemy_y = (SCREEN_HEIGHT - enemy_height) / 2 + enemy_height / 2
                 
                 # Enemy color based on health
-                health_ratio = enemy['health'] / 20.0
+                health_ratio = min(1.0, enemy['health'] / 50.0)
                 enemy_color = (int(200 * (1 - health_ratio)), int(50 + 150 * health_ratio), 50)
                 
-                pygame.draw.rect(screen, enemy_color, (int(screen_x) - enemy_size // 2, 
-                                                      int(enemy_y) - enemy_size, 
-                                                      enemy_size, enemy_size * 2))
+                # Draw enemy as filled triangle (more interesting shape)
+                points = [
+                    (int(screen_x), int(enemy_y - enemy_size)),
+                    (int(screen_x - enemy_size // 2), int(enemy_y + enemy_size)),
+                    (int(screen_x + enemy_size // 2), int(enemy_y + enemy_size))
+                ]
+                pygame.draw.polygon(screen, enemy_color, points)
+                pygame.draw.polygon(screen, (255, 100, 100), points, 2)
+                
+                # Draw health bar above enemy
+                bar_width = enemy_size
+                bar_height = 3
+                pygame.draw.rect(screen, (100, 100, 100), (int(screen_x - bar_width // 2), int(enemy_y - enemy_size - 8), bar_width, bar_height))
+                pygame.draw.rect(screen, (0, 255, 0), (int(screen_x - bar_width // 2), int(enemy_y - enemy_size - 8), int(bar_width * health_ratio), bar_height))
     
     # Minimap
-    mm_scale = 15
+    mm_scale = 10
     for y in range(MAP_HEIGHT):
         for x in range(MAP_WIDTH):
             color = (100, 100, 100) if GAME_MAP[y][x] == 1 else (50, 50, 50)
@@ -372,8 +398,8 @@ def render(screen):
                      (bar_x, bar_y, int(bar_width * health_ratio), bar_height))
     screen.blit(font.render(f"Health: {int(player['health'])}", True, (255, 255, 255)), (bar_x, bar_y - 25))
     
-    # Crosshair
-    cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4
+    # Crosshair (center of screen)
+    cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
     pygame.draw.line(screen, (100, 200, 100), (cx - 10, cy), (cx + 10, cy), 1)
     pygame.draw.line(screen, (100, 200, 100), (cx, cy - 10), (cx, cy + 10), 1)
 
