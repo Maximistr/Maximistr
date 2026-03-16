@@ -92,13 +92,19 @@ print("Starting in 8 seconds...\n")
 
 time.sleep(8)
 
+# Prep phrases for selection
+phrase_queue = phrases.copy()
+random.shuffle(phrase_queue)
+
 try:
     for i in range(SEARCHES_TO_DO):
-        # 1. Výběr náhodného vyhledávacího dotazu ze seznamu 'phrases'
-        phrase = random.choice(phrases)
-        while phrase in used_phrases:
-            phrase = random.choice(phrases)
-        used_phrases.append(phrase)
+        # 1. Výběr vyhledávacího dotazu (pokud dojdou, zamícháme znovu)
+        if not phrase_queue:
+            print("  • All phrases used. Refilling manual queue...")
+            phrase_queue = phrases.copy()
+            random.shuffle(phrase_queue)
+            
+        phrase = phrase_queue.pop()
         
         # 2. Aktivace vyhledávacího pole kliknutím a krátké posečkání
         pyautogui.click()

@@ -30,7 +30,7 @@ Cílem je vytvořit interactive 3D herní engine v 2D prostředí pygame pomocí
 
 ### Datové struktury
 - **game_map**: 2D pole reprezentující mapu (seznam seznamů)
-- **player**: Diccionář obsahující x, y pozici a úhel rotace
+- **player**: Slovník obsahující x, y pozici a úhel rotace
 - **Raycast result**: Výstup obsahující vzdálenost a typ stěny
 
 ### Implementační detaily
