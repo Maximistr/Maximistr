@@ -6,3 +6,4 @@ Zde se nachází seznam všech řešených projektů v rámci tohoto repozitář
 | :---: | :--- | :--- |
 | 01 | Bing Rewards Automation | 09. 03. 2026 |
 | 02 | Raycasting 3D Game Engine | 14. 03. 2026 |
+| 03 | Interaktivní Systém Částic s Fyzikou | 20. 03. 2026 |
