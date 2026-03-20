@@ -14,9 +14,9 @@ pygame.init()
 # Konstanty
 SCREEN_WIDTH, SCREEN_HEIGHT = 1000, 700
 FPS = 60
-GRAVITY = 9.81
+GRAVITY = 15  # Zwiększona grawitacja
 PARTICLE_RADIUS = 5
-FRICTION = 0.99  # Odpor vzduchu (0.99 = 1% ztráta energie za frame)
+FRICTION = 0.998  # Odpor vzduchu (0.998 = 0.2% ztráta energie za frame)
 ELASTICITY = 0.85  # Pružnost srážek (0.85 = 15% ztráta energie)
 PARTICLE_MASS = 1.0
 
@@ -160,9 +160,9 @@ class ParticleSystem:
     def add_particle(self, x, y, vx=None, vy=None):
         """Přidej novou částici"""
         if vx is None and vy is None:
-            # Náhodná počáteční rychlost
+            # Náhodná počáteční rychlost (zvýšena pro větší dynamiku)
             angle = random.uniform(0, 2 * math.pi)
-            speed = random.uniform(2, 8)
+            speed = random.uniform(10, 25)
             vx = math.cos(angle) * speed
             vy = math.sin(angle) * speed
         
@@ -195,7 +195,7 @@ class ParticleSystem:
             dist = math.sqrt(dx*dx + dy*dy) + 0.1
             
             # Rozptyl od středu
-            explosion_force = 15
+            explosion_force = 30
             particle.vx += (dx / dist) * explosion_force
             particle.vy += (dy / dist) * explosion_force
     
