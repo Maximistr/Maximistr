@@ -1,5 +1,5 @@
 """Raycasting 3D Game Engine - pygame"""
-import pygame, math, sys, random
+import pygame, math, sys, random,os 
 pygame.init()
 
 # Constants
@@ -10,6 +10,9 @@ NUM_RAYS = 80
 MAX_RAY_DISTANCE = 20
 RAY_STEP = 0.05
 MAP_WIDTH, MAP_HEIGHT = 25, 25
+
+# Animation constants
+ANIMATION_INTERVAL = 300  # ms
 
 def generate_map(width, height):
     """Generate connected dungeon map with corridors"""
@@ -81,6 +84,9 @@ def find_safe_spawn():
 px, py = find_safe_spawn()
 player = {'x': px, 'y': py, 'angle': 0, 'speed': 0.1, 'rotSpeed': 0.05, 'health': 100}
 
+# Asset placeholders
+enemy_sprite_img = None
+
 def generate_coins(num_coins=5):
     """Generate random coin positions that don't spawn in walls"""
     new_coins = []
@@ -132,32 +138,77 @@ def generate_enemies(num_enemies=5):
         
         # Don't spawn too close to player
         if walkable and math.sqrt((px - x)**2 + (py - y)**2) > 4:
-            enemies.append({'x': x, 'y': y, 'health': 50, 'speed': 0.05})
+            enemies.append({'x': x, 'y': y, 'health': 50, 'speed': 0.05, 'anim_offset': random.randint(0, 1000)})
         
         attempts += 1
     return enemies
 
 enemies = generate_enemies(5)
 
+# Fireballs
+fireballs = []
+
 
 def cast_ray(x, y, angle):
-    """Cast a ray and return distance and wall type"""
-    sin_a, cos_a = math.sin(angle), math.cos(angle)
-    distance = RAY_STEP
+    """Cast a ray using DDA algorithm for high precision"""
+    dir_x = math.cos(angle)
+    dir_y = math.sin(angle)
     
-    while distance < MAX_RAY_DISTANCE:
-        check_x = x + distance * cos_a
-        check_y = y + distance * sin_a
-        grid_x, grid_y = int(check_x), int(check_y)
+    map_x = int(x)
+    map_y = int(y)
+    
+    # Length of ray from one x or y-side to next x or y-side
+    delta_dist_x = abs(1 / dir_x) if dir_x != 0 else 1e30
+    delta_dist_y = abs(1 / dir_y) if dir_y != 0 else 1e30
+    
+    # Calculate step and initial sideDist
+    if dir_x < 0:
+        step_x = -1
+        side_dist_x = (x - map_x) * delta_dist_x
+    else:
+        step_x = 1
+        side_dist_x = (map_x + 1.0 - x) * delta_dist_x
         
-        if grid_x < 0 or grid_x >= MAP_WIDTH or grid_y < 0 or grid_y >= MAP_HEIGHT:
-            break
-        if GAME_MAP[grid_y][grid_x] == 1:
-            wall_type = 'v' if (check_x - grid_x) < 0.5 else 'h'
-            return (distance, wall_type)
-        distance += RAY_STEP
+    if dir_y < 0:
+        step_y = -1
+        side_dist_y = (y - map_y) * delta_dist_y
+    else:
+        step_y = 1
+        side_dist_y = (map_y + 1.0 - y) * delta_dist_y
     
-    return (MAX_RAY_DISTANCE, 'v')
+    # DDA
+    hit = False
+    side = 0 # 0 for NS, 1 for EW
+    dist = 0
+    
+    while not hit and dist < MAX_RAY_DISTANCE:
+        if side_dist_x < side_dist_y:
+            side_dist_x += delta_dist_x
+            map_x += step_x
+            side = 0
+        else:
+            side_dist_y += delta_dist_y
+            map_y += step_y
+            side = 1
+            
+        if 0 <= map_x < MAP_WIDTH and 0 <= map_y < MAP_HEIGHT:
+            if GAME_MAP[map_y][map_x] == 1:
+                hit = True
+        else:
+            break
+            
+    if hit:
+        if side == 0:
+            dist = (side_dist_x - delta_dist_x)
+            hit_pos = y + dist * dir_y
+        else:
+            dist = (side_dist_y - delta_dist_y)
+            hit_pos = x + dist * dir_x
+        
+        hit_pos -= math.floor(hit_pos)
+        return (dist, 'v' if side == 0 else 'h', hit_pos)
+    
+    return (MAX_RAY_DISTANCE, 'v', 0)
 
 
 def is_walkable(x, y):
@@ -215,7 +266,7 @@ def update_player(keys):
             player['health'] -= 0.1
 
 def update_enemies():
-    """Update enemy AI - move toward player"""
+    """Update enemy AI - move toward player with sliding"""
     for enemy in enemies:
         dx = player['x'] - enemy['x']
         dy = player['y'] - enemy['y']
@@ -223,72 +274,95 @@ def update_enemies():
         
         if dist > 0.1:
             # Move toward player
-            enemy['x'] += (dx / dist) * enemy['speed']
-            enemy['y'] += (dy / dist) * enemy['speed']
+            vx = (dx / dist) * enemy['speed']
+            vy = (dy / dist) * enemy['speed']
             
-            # Simple wall collision
-            r = 0.2
-            for dx_check in [-r, 0, r]:
-                for dy_check in [-r, 0, r]:
-                    if GAME_MAP[int(enemy['y'] + dy_check)][int(enemy['x'] + dx_check)] == 1:
-                        enemy['x'] -= (dx / dist) * enemy['speed']
-                        enemy['y'] -= (dy / dist) * enemy['speed']
-                        break
+            # Try moving X
+            new_x = enemy['x'] + vx
+            if is_walkable(new_x, enemy['y']):
+                enemy['x'] = new_x
+                
+            # Try moving Y
+            new_y = enemy['y'] + vy
+            if is_walkable(enemy['x'], new_y):
+                enemy['y'] = new_y
+
+def update_fireballs():
+    """Update fireball movement and collisions"""
+    global score
+    fireballs_to_remove = []
+    
+    for i, fb in enumerate(fireballs):
+        fb['x'] += math.cos(fb['angle']) * fb['speed']
+        fb['y'] += math.sin(fb['angle']) * fb['speed']
+        fb['distance'] += fb['speed']
+        
+        # Check for wall collision
+        if fb['x'] < 0 or fb['x'] >= MAP_WIDTH or fb['y'] < 0 or fb['y'] >= MAP_HEIGHT or \
+           GAME_MAP[int(fb['y'])][int(fb['x'])] == 1:
+            fireballs_to_remove.append(i)
+            continue
+            
+        # Check for enemy collision
+        for j, enemy in enumerate(enemies):
+            dist = math.sqrt((fb['x'] - enemy['x'])**2 + (fb['y'] - enemy['y'])**2)
+            if dist < 1.0:
+                enemy['health'] -= 20
+                fireballs_to_remove.append(i)
+                if enemy['health'] <= 0:
+                    enemies.pop(j)
+                    score += 50
+                break
+        
+        # Max distance
+        if fb['distance'] > MAX_RAY_DISTANCE:
+            fireballs_to_remove.append(i)
+            
+    for i in reversed(sorted(list(set(fireballs_to_remove)))):
+        if 0 <= i < len(fireballs):
+            fireballs.pop(i)
 
 def shoot():
-    """Shoot in the direction the player is looking"""
-    global score
-    shot_dist = 30
-    closest_enemy = None
-    closest_dist = shot_dist
-    closest_idx = -1
-    
-    # Find closest enemy in crosshair
-    for i, enemy in enumerate(enemies):
-        dx = enemy['x'] - player['x']
-        dy = enemy['y'] - player['y']
-        dist = math.sqrt(dx**2 + dy**2)
-        angle_to_enemy = math.atan2(dy, dx)
-        angle_diff = angle_to_enemy - player['angle']
-        
-        # Normalize angle
-        while angle_diff > math.pi:
-            angle_diff -= 2 * math.pi
-        while angle_diff < -math.pi:
-            angle_diff += 2 * math.pi
-        
-        # Check if in crosshair and closer than current closest
-        if abs(angle_diff) < 0.1 and dist < closest_dist:
-            closest_enemy = enemy
-            closest_dist = dist
-            closest_idx = i
-    
-    # Only damage the closest enemy
-    if closest_enemy is not None:
-        closest_enemy['health'] -= 20
-        if closest_enemy['health'] <= 0:
-            enemies.pop(closest_idx)
-            score += 50
+    """Spawn a fireball in the direction the player is looking"""
+    fireballs.append({
+        'x': player['x'],
+        'y': player['y'],
+        'angle': player['angle'],
+        'speed': 0.3,
+        'distance': 0
+    })
 
 
 def render(screen):
     """Render 3D view and minimap"""
     screen.fill((0, 0, 0))
-    pygame.draw.rect(screen, (30, 30, 30), (0, 0, SCREEN_WIDTH, SCREEN_HEIGHT // 2))
-    pygame.draw.rect(screen, (50, 50, 50), (0, SCREEN_HEIGHT // 2, SCREEN_WIDTH, SCREEN_HEIGHT // 2))
+    pygame.draw.rect(screen, (100, 50, 20), (0, 0, SCREEN_WIDTH, SCREEN_HEIGHT // 2))
+    pygame.draw.rect(screen, (139, 69, 19), (0, SCREEN_HEIGHT // 2, SCREEN_WIDTH, SCREEN_HEIGHT // 2))
     
     ray_width = SCREEN_WIDTH / NUM_RAYS
+    
+    # Shading cache surface
+    shade_cache = pygame.Surface((int(ray_width) + 2, SCREEN_HEIGHT))
+    
     for i in range(NUM_RAYS):
         angle = player['angle'] - FOV/2 + (i/NUM_RAYS) * FOV
-        dist, wtype = cast_ray(player['x'], player['y'], angle)
+        dist, wtype, hit_pos = cast_ray(player['x'], player['y'], angle)
+        
+        # Fish-eye correction
         dist *= math.cos(angle - player['angle'])
         
-        height = (SCREEN_HEIGHT / 2) / (dist / 5) if dist > 0 else SCREEN_HEIGHT
-        darkness = max(0.2, 1 - dist / MAX_RAY_DISTANCE)
-        color = tuple(int(c * darkness) for c in ((100, 100, 200) if wtype == 'v' else (80, 80, 180)))
+        height = (SCREEN_HEIGHT / 2) / (dist / 5) if dist > 0.01 else SCREEN_HEIGHT
         
-        y = (SCREEN_HEIGHT - height) / 2
-        pygame.draw.rect(screen, color, (i * ray_width, y, ray_width + 1, height))
+        # Clamp height and determine vertical offset
+        draw_height = min(int(height), SCREEN_HEIGHT)
+        y = (SCREEN_HEIGHT - draw_height) / 2
+        
+        # Draw walls as solid blocks (with shading)
+        darkness = max(0.2, 1 - dist / MAX_RAY_DISTANCE)
+        # Use different shades of orange for vertical vs horizontal hits
+        color = tuple(int(c * darkness) for c in ((255, 140, 0) if wtype == 'v' else (255, 165, 0)))
+        
+        pygame.draw.rect(screen, color, (i * ray_width, y, ray_width + 1, draw_height))
     
     # Draw coins in 3D view
     for cx, cy in coins:
@@ -298,7 +372,7 @@ def render(screen):
         angle_to_coin = math.atan2(dy, dx)
         
         # Check line of sight to coin
-        wall_dist, _ = cast_ray(player['x'], player['y'], angle_to_coin)
+        wall_dist, _, _ = cast_ray(player['x'], player['y'], angle_to_coin)
         wall_dist *= math.cos(angle_to_coin - player['angle'])
         
         # Only draw if coin is visible (no wall blocking)
@@ -331,7 +405,7 @@ def render(screen):
         angle_to_enemy = math.atan2(dy, dx)
         
         # Check line of sight
-        wall_dist, _ = cast_ray(player['x'], player['y'], angle_to_enemy)
+        wall_dist, _, _ = cast_ray(player['x'], player['y'], angle_to_enemy)
         wall_dist *= math.cos(angle_to_enemy - player['angle'])
         
         if wall_dist > dist and dist > 0.1:
@@ -347,25 +421,72 @@ def render(screen):
                 enemy_size = max(5, int(enemy_height / 3))
                 enemy_y = (SCREEN_HEIGHT - enemy_height) / 2 + enemy_height / 2
                 
-                # Enemy color based on health
+                # Draw enemy as sprite
                 health_ratio = min(1.0, enemy['health'] / 50.0)
-                enemy_color = (int(200 * (1 - health_ratio)), int(50 + 150 * health_ratio), 50)
                 
-                # Draw enemy as filled triangle (more interesting shape)
-                points = [
-                    (int(screen_x), int(enemy_y - enemy_size)),
-                    (int(screen_x - enemy_size // 2), int(enemy_y + enemy_size)),
-                    (int(screen_x + enemy_size // 2), int(enemy_y + enemy_size))
-                ]
-                pygame.draw.polygon(screen, enemy_color, points)
-                pygame.draw.polygon(screen, (255, 100, 100), points, 2)
+                # Scale sprite based on distance
+                s_width = int(enemy_height)
+                s_height = int(enemy_height)
+                
+                # Center the sprite on the screen position
+                sprite_rect = pygame.Rect(0, 0, s_width, s_height)
+                sprite_rect.center = (int(screen_x), int(enemy_y))
+                
+                scaled_sprite = pygame.transform.scale(enemy_sprite_img, (s_width, s_height))
+                
+                # Simple flipping animation
+                current_time = pygame.time.get_ticks()
+                if ((current_time + enemy.get('anim_offset', 0)) // ANIMATION_INTERVAL) % 2 == 1:
+                    scaled_sprite = pygame.transform.flip(scaled_sprite, True, False)
+
+                # Apply depth shading while preserving alpha
+                darkness = max(0.3, 1 - dist / MAX_RAY_DISTANCE)
+                shade = int(255 * darkness)
+                
+                # Create a shading surface
+                shade_surf = pygame.Surface((s_width, s_height))
+                shade_surf.fill((shade, shade, shade))
+                
+                # Blend with MULTIPLY to darken while keeping transparent parts transparent
+                scaled_sprite.blit(shade_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                
+                screen.blit(scaled_sprite, sprite_rect)
                 
                 # Draw health bar above enemy
-                bar_width = enemy_size
-                bar_height = 3
-                pygame.draw.rect(screen, (100, 100, 100), (int(screen_x - bar_width // 2), int(enemy_y - enemy_size - 8), bar_width, bar_height))
-                pygame.draw.rect(screen, (0, 255, 0), (int(screen_x - bar_width // 2), int(enemy_y - enemy_size - 8), int(bar_width * health_ratio), bar_height))
-    
+                bar_width = int(enemy_height / 2)
+                bar_height = 4
+                pygame.draw.rect(screen, (100, 100, 100), (int(screen_x - bar_width // 2), int(sprite_rect.top - 10), bar_width, bar_height))
+                pygame.draw.rect(screen, (0, 255, 0), (int(screen_x - bar_width // 2), int(sprite_rect.top - 10), int(bar_width * health_ratio), bar_height))
+
+    # Draw fireballs in 3D view
+    for fb in fireballs:
+        dx = fb['x'] - player['x']
+        dy = fb['y'] - player['y']
+        dist = math.sqrt(dx**2 + dy**2)
+        angle_to_fb = math.atan2(dy, dx)
+        
+        # Check line of sight
+        wall_dist, _, _ = cast_ray(player['x'], player['y'], angle_to_fb)
+        wall_dist *= math.cos(angle_to_fb - player['angle'])
+        
+        if wall_dist > dist:
+            angle_diff = angle_to_fb - player['angle']
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+            
+            if abs(angle_diff) < FOV / 2 and dist < MAX_RAY_DISTANCE and dist > 0.1:
+                screen_x = SCREEN_WIDTH / 2 + (angle_diff / (FOV / 2)) * (SCREEN_WIDTH / 2)
+                fb_height = (SCREEN_HEIGHT / 2) / (dist / 5)
+                fb_size = max(4, int(fb_height / 6))
+                fb_y = (SCREEN_HEIGHT - fb_height) / 2 + fb_height / 2
+                
+                # Glowing fireball effect
+                pygame.draw.circle(screen, (255, 200, 0), (int(screen_x), int(fb_y)), fb_size + 2)
+                pygame.draw.circle(screen, (255, 100, 0), (int(screen_x), int(fb_y)), fb_size)
+                pygame.draw.circle(screen, (255, 255, 200), (int(screen_x), int(fb_y)), fb_size // 2)
+
     # Minimap
     mm_scale = 10
     for y in range(MAP_HEIGHT):
@@ -408,6 +529,26 @@ def main():
     global clock
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Raycasting 3D Game - WASD move, SPACE/Click shoot, Mouse rotate")
+    
+    # Load Assets (must be after set_mode for convert_alpha)
+    global enemy_sprite_img
+    script_dir = os.path.dirname(__file__)
+    
+    try:
+        sprite_path = os.path.join(script_dir, "enemy_sprite.png")
+        temp_img = pygame.image.load(sprite_path).convert()
+        # Use top-left pixel as colorkey
+        colorkey = temp_img.get_at((0, 0))
+        temp_img.set_colorkey(colorkey)
+        
+        # Bake the colorkey into a true alpha channel
+        enemy_sprite_img = pygame.Surface(temp_img.get_size(), pygame.SRCALPHA)
+        enemy_sprite_img.blit(temp_img, (0, 0))
+    except Exception as e:
+        print(f"Error loading sprite: {e}")
+        enemy_sprite_img = pygame.Surface((64, 64))
+        enemy_sprite_img.fill((255, 0, 0))
+
     clock = pygame.time.Clock()
     
     pygame.mouse.set_visible(False)
@@ -433,6 +574,7 @@ def main():
         
         update_player(pygame.key.get_pressed())
         update_enemies()
+        update_fireballs()
         render(screen)
         pygame.display.flip()
         clock.tick(FPS)
