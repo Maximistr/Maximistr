@@ -3,6 +3,11 @@
 ## Overview
 This project is a data-driven analytics dashboard for the mobile game **Brawl Stars**. It fetches player information from the official Brawl Stars API, tracks player progression over time, and visualizes key metrics through an interactive dashboard built with Streamlit.
 
+## Live Web Application
+The current web application is deployed and accessible at:
+- **https://brawl-stats.streamlit.app/**
+- *Note: The web app is maintained in a separate repository*
+
 ## Project Structure
 
 ### Files
