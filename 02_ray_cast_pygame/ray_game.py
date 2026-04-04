@@ -14,6 +14,20 @@ MAP_WIDTH, MAP_HEIGHT = 25, 25
 # Animation constants
 ANIMATION_INTERVAL = 300  # ms
 
+# Global game state
+current_level = 1
+total_score = 0
+
+# Game state variables (will be initialized per level)
+player = {}
+coins = []
+enemies = []
+fireballs = []
+GAME_MAP = []
+score = 0
+enemy_sprite_img = None
+clock = None
+
 def generate_map(width, height):
     """Generate connected dungeon map with corridors"""
     game_map = [[1 for _ in range(width)] for _ in range(height)]
@@ -59,10 +73,9 @@ def generate_map(width, height):
     
     return game_map
 
-GAME_MAP = generate_map(MAP_WIDTH, MAP_HEIGHT)
 
-# Find a safe spawn point
 def find_safe_spawn():
+    """Find a safe spawn point not in walls"""
     attempts = 0
     while attempts < 1000:
         x = random.uniform(2, MAP_WIDTH - 2)
@@ -81,11 +94,6 @@ def find_safe_spawn():
         attempts += 1
     return 12.5, 12.5
 
-px, py = find_safe_spawn()
-player = {'x': px, 'y': py, 'angle': 0, 'speed': 0.1, 'rotSpeed': 0.05, 'health': 100}
-
-# Asset placeholders
-enemy_sprite_img = None
 
 def generate_coins(num_coins=5):
     """Generate random coin positions that don't spawn in walls"""
@@ -114,39 +122,6 @@ def generate_coins(num_coins=5):
         attempts += 1
     
     return new_coins
-
-# Coins and score
-coins = generate_coins(5)
-score = 0
-
-def generate_enemies(num_enemies=5):
-    """Generate random enemy positions"""
-    enemies = []
-    attempts = 0
-    while len(enemies) < num_enemies and attempts < 1000:
-        x = random.uniform(2, MAP_WIDTH - 2)
-        y = random.uniform(2, MAP_HEIGHT - 2)
-        r = 0.3
-        walkable = True
-        for dx in [-r, 0, r]:
-            for dy in [-r, 0, r]:
-                if GAME_MAP[int(y + dy)][int(x + dx)] == 1:
-                    walkable = False
-                    break
-            if not walkable:
-                break
-        
-        # Don't spawn too close to player
-        if walkable and math.sqrt((px - x)**2 + (py - y)**2) > 4:
-            enemies.append({'x': x, 'y': y, 'health': 50, 'speed': 0.05, 'anim_offset': random.randint(0, 1000)})
-        
-        attempts += 1
-    return enemies
-
-enemies = generate_enemies(5)
-
-# Fireballs
-fireballs = []
 
 
 def cast_ray(x, y, angle):
@@ -506,7 +481,7 @@ def render(screen):
     # Info
     font = pygame.font.Font(None, 20)
     screen.blit(font.render(f"FPS: {int(clock.get_fps())}", True, (255, 255, 255)), (5, SCREEN_HEIGHT - 25))
-    screen.blit(font.render(f"Score: {score} | Coins: {len(coins)} | Enemies: {len(enemies)}", True, (255, 215, 0)), (SCREEN_WIDTH - 350, SCREEN_HEIGHT - 25))
+    screen.blit(font.render(f"Level: {current_level} | Score: {score} | Coins: {len(coins)} | Enemies: {len(enemies)}", True, (255, 215, 0)), (SCREEN_WIDTH - 500, SCREEN_HEIGHT - 25))
     
     # Health bar
     bar_width = 200
@@ -525,10 +500,182 @@ def render(screen):
     pygame.draw.line(screen, (100, 200, 100), (cx, cy - 10), (cx, cy + 10), 1)
 
 
+def initialize_level(level):
+    """Initialize a new level with difficulty scaling"""
+    global GAME_MAP, player, coins, enemies, fireballs, px, py, score
+    
+    score = 0
+    fireballs = []
+    
+    # Generate new map
+    GAME_MAP = generate_map(MAP_WIDTH, MAP_HEIGHT)
+    px, py = find_safe_spawn()
+    
+    # Scale difficulty with level
+    health_scaling = 1.0 + (level - 1) * 0.2  # Slightly reduced for better playability
+    enemy_count = 3 + (level - 1) * 2
+    coin_count = 5 + (level - 1)
+    enemy_speed_scaling = 1.0 + (level - 1) * 0.15
+    
+    # Reset player
+    player = {'x': px, 'y': py, 'angle': 0, 'speed': 0.1, 'rotSpeed': 0.05, 'health': 100 * health_scaling}
+    
+    # Generate level-specific enemies with difficulty scaling
+    enemies = []
+    attempts = 0
+    while len(enemies) < enemy_count and attempts < 1000:
+        x = random.uniform(2, MAP_WIDTH - 2)
+        y = random.uniform(2, MAP_HEIGHT - 2)
+        r = 0.3
+        walkable = True
+        for dx in [-r, 0, r]:
+            for dy in [-r, 0, r]:
+                if GAME_MAP[int(y + dy)][int(x + dx)] == 1:
+                    walkable = False
+                    break
+            if not walkable:
+                break
+        
+        if walkable and math.sqrt((player['x'] - x)**2 + (player['y'] - y)**2) > 4:
+            enemies.append({
+                'x': x, 
+                'y': y, 
+                'health': 50 * (1.0 + (level - 1) * 0.3), 
+                'speed': 0.05 * enemy_speed_scaling, 
+                'anim_offset': random.randint(0, 1000)
+            })
+        attempts += 1
+    
+    # Generate coins
+    coins = generate_coins(coin_count)
+
+
+def show_level_menu(screen, font_large, font_small):
+    """Display level selection menu"""
+    selecting = True
+    selected_level = 1
+    
+    while selecting:
+        screen.fill((10, 10, 10))
+        
+        title = font_large.render("SELECT LEVEL", True, (255, 215, 0))
+        screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 50))
+        
+        y_pos = 150
+        for level_num in range(1, 6):
+            color = (255, 255, 0) if level_num == selected_level else (150, 150, 150)
+            indicator = ">>> " if level_num == selected_level else "    "
+            level_text = font_small.render(f"{indicator}Level {level_num}", True, color)
+            screen.blit(level_text, (SCREEN_WIDTH // 2 - level_text.get_width() // 2, y_pos))
+            y_pos += 50
+        
+        instructions = font_small.render("UP/DOWN: Select | ENTER/SPACE: Play | ESC: Quit", True, (200, 200, 200))
+        screen.blit(instructions, (SCREEN_WIDTH // 2 - instructions.get_width() // 2, SCREEN_HEIGHT - 100))
+        
+        pygame.display.flip()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return None
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    selected_level = max(1, selected_level - 1)
+                elif event.key == pygame.K_DOWN:
+                    selected_level = min(5, selected_level + 1)
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    return selected_level
+                elif event.key == pygame.K_ESCAPE:
+                    return None
+    
+    return selected_level
+
+
+def show_level_complete_menu(screen, font_large, font_small, level, level_score):
+    """Display level complete screen with options"""
+    waiting = True
+    
+    while waiting:
+        screen.fill((10, 10, 10))
+        
+        title = font_large.render(f"LEVEL {level} COMPLETE!", True, (0, 255, 0))
+        screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 80))
+        
+        score_text = font_small.render(f"Level Score: {int(level_score)}", True, (255, 215, 0))
+        screen.blit(score_text, (SCREEN_WIDTH // 2 - score_text.get_width() // 2, 180))
+        
+        total_text = font_small.render(f"Total Score: {int(total_score)}", True, (255, 215, 0))
+        screen.blit(total_text, (SCREEN_WIDTH // 2 - total_text.get_width() // 2, 230))
+        
+        next_level_text = font_small.render("SPACE: Next Level", True, (150, 200, 255))
+        screen.blit(next_level_text, (SCREEN_WIDTH // 2 - next_level_text.get_width() // 2, 330))
+        
+        level_select_text = font_small.render("M: Select Level", True, (200, 150, 200))
+        screen.blit(level_select_text, (SCREEN_WIDTH // 2 - level_select_text.get_width() // 2, 380))
+        
+        quit_text = font_small.render("ESC: Quit", True, (200, 100, 100))
+        screen.blit(quit_text, (SCREEN_WIDTH // 2 - quit_text.get_width() // 2, 430))
+        
+        pygame.display.flip()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return None
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    return 'next'
+                elif event.key == pygame.K_m:
+                    return 'menu'
+                elif event.key == pygame.K_ESCAPE:
+                    return None
+    
+    return 'next'
+
+
+def show_game_over_menu(screen, font_large, font_small, game_over_reason):
+    """Display game over screen"""
+    waiting = True
+    
+    while waiting:
+        screen.fill((10, 10, 10))
+        
+        title = font_large.render("GAME OVER", True, (255, 0, 0))
+        screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 100))
+        
+        reason = font_small.render(game_over_reason, True, (255, 100, 100))
+        screen.blit(reason, (SCREEN_WIDTH // 2 - reason.get_width() // 2, 200))
+        
+        total_text = font_small.render(f"Total Score: {int(total_score)}", True, (255, 215, 0))
+        screen.blit(total_text, (SCREEN_WIDTH // 2 - total_text.get_width() // 2, 280))
+        
+        retry_text = font_small.render("SPACE: Try Again", True, (150, 200, 255))
+        screen.blit(retry_text, (SCREEN_WIDTH // 2 - retry_text.get_width() // 2, 360))
+        
+        level_select_text = font_small.render("M: Select Level", True, (200, 150, 200))
+        screen.blit(level_select_text, (SCREEN_WIDTH // 2 - level_select_text.get_width() // 2, 410))
+        
+        quit_text = font_small.render("ESC: Quit", True, (200, 100, 100))
+        screen.blit(quit_text, (SCREEN_WIDTH // 2 - quit_text.get_width() // 2, 460))
+        
+        pygame.display.flip()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return None
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    return 'retry'
+                elif event.key == pygame.K_m:
+                    return 'menu'
+                elif event.key == pygame.K_ESCAPE:
+                    return None
+    
+    return 'menu'
+
+
 def main():
-    global clock
+    global clock, current_level, total_score, player, coins, enemies, fireballs, GAME_MAP, score
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Raycasting 3D Game - WASD move, SPACE/Click shoot, Mouse rotate")
+    pygame.display.set_caption("Raycasting 3D Game - WASD move, SPACE/Click shoot, Mouse rotate, M: Menu")
     
     # Load Assets (must be after set_mode for convert_alpha)
     global enemy_sprite_img
@@ -551,33 +698,127 @@ def main():
 
     clock = pygame.time.Clock()
     
+    # Fonts for menus
+    font_large = pygame.font.Font(None, 50)
+    font_small = pygame.font.Font(None, 30)
+    
+    # Show initial level menu
+    level_to_play = show_level_menu(screen, font_large, font_small)
+    if level_to_play is None:
+        pygame.quit()
+        return
+    
+    current_level = level_to_play
+    total_score = 0
+    
     pygame.mouse.set_visible(False)
     pygame.event.set_grab(True)
     center_x = SCREEN_WIDTH // 2
     
+    # Main game loop
     running = True
+    in_level = True
+    
     while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
-                running = False
-            if event.type == pygame.MOUSEBUTTONDOWN or (event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE):
-                shoot()
-        
-        if player['health'] <= 0:
-            running = False
-        
-        # Mouse rotation (like classic FPS)
-        mouse_x, mouse_y = pygame.mouse.get_pos()
-        mouse_delta = mouse_x - center_x
-        player['angle'] += mouse_delta * 0.005
-        pygame.mouse.set_pos(center_x, mouse_y)
-        
-        update_player(pygame.key.get_pressed())
-        update_enemies()
-        update_fireballs()
-        render(screen)
-        pygame.display.flip()
-        clock.tick(FPS)
+        if in_level:
+            # Initialize the current level
+            initialize_level(current_level)
+            level_complete = False
+            
+            # Level gameplay loop
+            while in_level and not level_complete:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
+                        in_level = False
+                        break
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            running = False
+                            in_level = False
+                            break
+                        if event.key == pygame.K_m:
+                            # Return to menu
+                            in_level = False
+                            break
+                        if event.type == pygame.MOUSEBUTTONDOWN or event.key == pygame.K_SPACE:
+                            shoot()
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        shoot()
+                
+                if not in_level:
+                    break
+                
+                if player['health'] <= 0:
+                    # Game over
+                    pygame.mouse.set_visible(True)
+                    pygame.event.set_grab(False)
+                    action = show_game_over_menu(screen, font_large, font_small, "You died!")
+                    pygame.mouse.set_visible(False)
+                    pygame.event.set_grab(True)
+                    
+                    if action == 'retry':
+                        break
+                    elif action == 'menu':
+                        in_level = False
+                        break
+                    else:
+                        running = False
+                        in_level = False
+                        break
+                
+                # Check if level is complete (all enemies defeated AND all coins collected)
+                if len(enemies) == 0 and len(coins) == 0:
+                    level_complete = True
+                    total_score += score
+                    break
+                
+                # Mouse rotation (like classic FPS)
+                mouse_x, mouse_y = pygame.mouse.get_pos()
+                mouse_delta = mouse_x - center_x
+                player['angle'] += mouse_delta * 0.005
+                pygame.mouse.set_pos(center_x, mouse_y)
+                
+                update_player(pygame.key.get_pressed())
+                update_enemies()
+                update_fireballs()
+                render(screen)
+                pygame.display.flip()
+                clock.tick(FPS)
+            
+            # Level complete menu
+            if level_complete and in_level:
+                pygame.mouse.set_visible(True)
+                pygame.event.set_grab(False)
+                action = show_level_complete_menu(screen, font_large, font_small, current_level, score)
+                pygame.mouse.set_visible(False)
+                pygame.event.set_grab(True)
+                
+                if action == 'next':
+                    current_level += 1
+                    in_level = True
+                elif action == 'menu':
+                    in_level = False
+                    level_to_play = show_level_menu(screen, font_large, font_small)
+                    if level_to_play is None:
+                        running = False
+                    else:
+                        current_level = level_to_play
+                        in_level = True
+                else:
+                    running = False
+                    in_level = False
+            
+            # If player died
+            elif not level_complete and not in_level:
+                # Return to menu
+                level_to_play = show_level_menu(screen, font_large, font_small)
+                if level_to_play is None:
+                    running = False
+                else:
+                    current_level = level_to_play
+                    total_score = 0
+                    in_level = True
     
     pygame.mouse.set_visible(True)
     pygame.event.set_grab(False)
