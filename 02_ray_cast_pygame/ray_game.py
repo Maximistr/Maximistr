@@ -23,6 +23,7 @@ player = {}
 coins = []
 enemies = []
 fireballs = []
+particles = []
 GAME_MAP = []
 score = 0
 enemy_sprite_img = None
@@ -295,6 +296,7 @@ def update_fireballs():
                 enemy['health'] -= 20
                 fireballs_to_remove.append(i)
                 if enemy['health'] <= 0:
+                    create_death_particles(enemy['x'], enemy['y'])
                     enemies.pop(j)
                     score += 50
                 break
@@ -323,6 +325,70 @@ def shoot():
     
     # Decrement ammo
     player['ammo'] -= 1
+
+
+def create_death_particles(x, y, num_particles=15):
+    """Create explosion particles when enemy dies"""
+    for _ in range(num_particles):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(0.2, 0.8)
+        particles.append({
+            'x': x,
+            'y': y,
+            'angle': angle,
+            'speed': speed,
+            'life': 30,
+            'max_life': 30,
+            'color': (random.randint(200, 255), random.randint(50, 150), 0)  # Orange/red
+        })
+
+
+def update_particles():
+    """Update particle positions and lifetimes"""
+    particles_to_remove = []
+    
+    for i, particle in enumerate(particles):
+        particle['x'] += math.cos(particle['angle']) * particle['speed']
+        particle['y'] += math.sin(particle['angle']) * particle['speed']
+        particle['life'] -= 1
+        
+        if particle['life'] <= 0:
+            particles_to_remove.append(i)
+    
+    for i in reversed(particles_to_remove):
+        if 0 <= i < len(particles):
+            particles.pop(i)
+
+
+def render_particles(screen):
+    """Render particles in 3D view"""
+    for particle in particles:
+        px = particle['x'] - player['x']
+        py = particle['y'] - player['y']
+        dist = math.sqrt(px**2 + py**2)
+        
+        if dist > 0.1 and dist < MAX_RAY_DISTANCE:
+            angle_to_particle = math.atan2(py, px)
+            angle_diff = angle_to_particle - player['angle']
+            
+            # Normalize angle
+            while angle_diff > math.pi:
+                angle_diff -= 2 * math.pi
+            while angle_diff < -math.pi:
+                angle_diff += 2 * math.pi
+            
+            # Check if in FOV
+            if abs(angle_diff) < FOV / 2:
+                screen_x = SCREEN_WIDTH / 2 + (angle_diff / (FOV / 2)) * (SCREEN_WIDTH / 2)
+                particle_height = (SCREEN_HEIGHT / 2) / (dist / 5)
+                particle_size = max(2, int(particle_height / 8))
+                particle_y = (SCREEN_HEIGHT - particle_height) / 2 + particle_height / 2
+                
+                # Fade out effect
+                alpha_ratio = particle['life'] / particle['max_life']
+                color = tuple(int(c * alpha_ratio) for c in particle['color'])
+                
+                pygame.draw.circle(screen, color, (int(screen_x), int(particle_y)), particle_size)
 
 
 def render(screen):
@@ -479,6 +545,9 @@ def render(screen):
                 pygame.draw.circle(screen, (255, 100, 0), (int(screen_x), int(fb_y)), fb_size)
                 pygame.draw.circle(screen, (255, 255, 200), (int(screen_x), int(fb_y)), fb_size // 2)
 
+    # Draw particles in 3D view
+    render_particles(screen)
+
     # Minimap
     mm_scale = 10
     for y in range(MAP_HEIGHT):
@@ -542,10 +611,11 @@ def render(screen):
 
 def initialize_level(level):
     """Initialize a new level with difficulty scaling"""
-    global GAME_MAP, player, coins, enemies, fireballs, px, py, score
+    global GAME_MAP, player, coins, enemies, fireballs, particles, px, py, score
     
     score = 0
     fireballs = []
+    particles = []
     
     # Generate new map
     GAME_MAP = generate_map(MAP_WIDTH, MAP_HEIGHT)
@@ -832,6 +902,7 @@ def main():
                 update_player(pygame.key.get_pressed())
                 update_enemies()
                 update_fireballs()
+                update_particles()
                 render(screen)
                 pygame.display.flip()
                 clock.tick(FPS)
