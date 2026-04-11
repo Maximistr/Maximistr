@@ -201,6 +201,16 @@ def is_walkable(x, y):
 def update_player(keys):
     """Update player position and rotation"""
     global score
+    current_time = pygame.time.get_ticks()
+    
+    # Handle ammo reload (1.5 seconds per ammo)
+    if player['ammo'] < player['max_ammo']:
+        if player['reload_start_time'] is None:
+            player['reload_start_time'] = current_time
+        elif current_time - player['reload_start_time'] >= 1500:
+            player['ammo'] += 1
+            player['reload_start_time'] = current_time
+    
     new_x, new_y = player['x'], player['y']
     
     if keys[pygame.K_w]:
@@ -299,6 +309,10 @@ def update_fireballs():
 
 def shoot():
     """Spawn a fireball in the direction the player is looking"""
+    # Check if player has ammo
+    if player['ammo'] <= 0:
+        return
+    
     fireballs.append({
         'x': player['x'],
         'y': player['y'],
@@ -306,6 +320,9 @@ def shoot():
         'speed': 0.3,
         'distance': 0
     })
+    
+    # Decrement ammo
+    player['ammo'] -= 1
 
 
 def render(screen):
@@ -494,6 +511,29 @@ def render(screen):
                      (bar_x, bar_y, int(bar_width * health_ratio), bar_height))
     screen.blit(font.render(f"Health: {int(player['health'])}", True, (255, 255, 255)), (bar_x, bar_y - 25))
     
+    # Ammo display
+    ammo_x = SCREEN_WIDTH - 200
+    ammo_y = SCREEN_HEIGHT - 55
+    ammo_text = font.render(f"Ammo: {player['ammo']}/{player['max_ammo']}", True, (255, 165, 0))
+    screen.blit(ammo_text, (ammo_x, ammo_y - 25))
+    
+    # Ammo bar
+    ammo_bar_width = 150
+    ammo_bar_height = 20
+    ammo_ratio = player['ammo'] / player['max_ammo']
+    ammo_color = (255, 165, 0) if player['ammo'] > 0 else (100, 100, 100)
+    pygame.draw.rect(screen, (50, 50, 50), (ammo_x, ammo_y, ammo_bar_width, ammo_bar_height))
+    pygame.draw.rect(screen, ammo_color, (ammo_x, ammo_y, int(ammo_bar_width * ammo_ratio), ammo_bar_height))
+    
+    # Reload status
+    if player['ammo'] < player['max_ammo'] and player['reload_start_time'] is not None:
+        current_time = pygame.time.get_ticks()
+        time_reloading = current_time - player['reload_start_time']
+        reload_time = 1500
+        reload_progress = min(1.0, time_reloading / reload_time)
+        reload_text = font.render(f"Reload: {int(reload_progress * 100)}%", True, (255, 100, 100))
+        screen.blit(reload_text, (ammo_x, ammo_y + 25))
+    
     # Crosshair (center of screen)
     cx, cy = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
     pygame.draw.line(screen, (100, 200, 100), (cx - 10, cy), (cx + 10, cy), 1)
@@ -518,7 +558,17 @@ def initialize_level(level):
     enemy_speed_scaling = 1.0 + (level - 1) * 0.15
     
     # Reset player
-    player = {'x': px, 'y': py, 'angle': 0, 'speed': 0.1, 'rotSpeed': 0.05, 'health': 100 * health_scaling}
+    player = {
+        'x': px, 
+        'y': py, 
+        'angle': 0, 
+        'speed': 0.1, 
+        'rotSpeed': 0.05, 
+        'health': 100 * health_scaling,
+        'ammo': 3,
+        'max_ammo': 3,
+        'reload_start_time': None
+    }
     
     # Generate level-specific enemies with difficulty scaling
     enemies = []
