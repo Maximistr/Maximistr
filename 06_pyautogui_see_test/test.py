@@ -1,104 +1,159 @@
 import pyautogui as pag
 import pynput
 import pygetwindow as gw
+import json
 
-# Konfigurace hracího pole - nastavení rozměrů a mezer
-cell_dis = 20          # Vzdálenost mezi jednotlivými buňkami v pixelech
-cell_width = 9         # Počet sloupců (buněk v řádku)
-cell_height = 9        # Počet řádků (buněk v sloupci)
+cell_dis = 16
+cell_width = 16
+cell_height = 16  
 start_cell = 0
+mines = 40
+flag_count = 0
 
-# Mapování RGB barev na stavy buněk
-# Barvy jsou určeny podle vizuálního vzhledu Minesweeper aplikace
-blank = (192,192,192)  # Prázdná buňka (šedá)
-one = (0,0,255)        # Buňka s jednou sousedující minou (modrá)
-two = (0, 128, 0)      # Buňka se dvěma sousedícími minami (zelená)
-three = (255,0,0)      # Buňka se třemi sousedícími minami (červená)
-
-# Inicializace seznamu pro ukládání dat řádku
+blank = (192,192,192)
+one = (0,0,255)
+two = (0, 128, 0)
+three = (255,0,0)
+four = (0,0,128)
+five = (128,0,0)
+flag = (0,0,0)
 
 rows = []
+changes = 0
+hi_num = 0
+streak = False
+streak_num = None
+no_streak = 0
 
-# Lokalizace a příprava okna Minesweeper aplikace
-# Vyhledání okna podle názvu a uvedení do popředí
 window = gw.getWindowsWithTitle('Minesweeper')[0]
-window.restore()           # Obnovení normální velikosti okna
-window.activate()          # Aktivace okna do popředí
+window.restore()
+window.activate()
 region = (window.left, window.top, window.width, window.height)
 
-# Nastavení počáteční pozice kurzoru na prvopou buňku hracího pole
-# Offsety (30, 136) jsou zjištěny empiricky pro standardní Minesweeper
-pag.moveTo(region[0]+30, region[1]+136)
+pag.moveTo(region[0]+23, region[1]+120)
+print(region[0])
+print(region[1])
 print(pag.position())
 start_cell = pag.position()
-pag.click()  # Kliknutí na herní desku aktivuje herní okno
+pag.click()
 
-# Hlavní smyčka pro zpracování hracího pole
-# Vnější smyčka - iterace po řádcích (délka: cell_height = 9)
-for x in range(cell_height):
-    field = []
-    # Vnitřní smyčka - iterace po sloupcích (délka: cell_width = 9)
-    for y in range(cell_width):
-        # Přečtení RGB barvy aktuálního pixelu pod kurzorem
+def check(number):
+    global flag_count
+    global changes
+    global mines
+    for r in range(len(rows)):
+        for c in range(len(rows[r])):
+            print(f"Checking cell [{r}][{c}] = {rows[r][c]}")
+            if rows[r][c] == number:
+                print(f"  Found {number} at [{r}][{c}]")
+                target =  []
+                flags = 0
+                for dr in range(-1,2):
+                    for dc in range(-1,2):
+                        nr = r + dr
+                        nc = c + dc
+
+                        if 0 <= nr < len(rows) and 0 <= nc < len(rows[r]):
+                            if rows[nr][nc] == "C":
+                                target.append((nr, nc))
+                            if rows[nr][nc] == "F":
+                                flags += 1
+                print(f"  Temp count: {len(target)}")
+                print(f"{flags} flags around")
+                if flags == number:
+                    for pos in range(len(target)):
+                        x = start_cell.x + cell_dis * target[pos][1]
+                        y = start_cell.y + cell_dis * target[pos][0]
+                        pag.moveTo(x,y)
+                        pag.click()
+                        rows[target[pos][0]][target[pos][1]] = match_color()
+                        changes += 1
+                elif len(target) + flags == number:
+                    for p in range(len(target)):
+                        tr = target[p][0]
+                        tc = target[p][1]
+                        rows[tr][tc] = "F"
+                        print(f"  Temp == 1! Flagging [{tr}][{tc}]")
+                        x = start_cell.x + cell_dis * tc
+                        y = start_cell.y + cell_dis * tr
+
+                        pag.moveTo(x, y)
+                        print(f"  Moved to: ({x}, {y})")
+                        pag.rightClick()
+                        flag_count += 1
+                        changes += 1
+
+
+def match_color():
+        global streak
+        global hi_num
+        global streak_num
         color = pag.pixel(pag.position().x, pag.position().y)
-        
-        # Porovnání přečtené barvy s definovanými stavy pomocí match-case
-        # Mapování: barva -> hodnota buňky
         match color:
             case c if c == blank:
-                pag.moveRel(-10,0)
-                new_col = pag.pixel(pag.position().x, pag.position().y)
-                if new_col == (255,255,255):
-                    field.append("C")  #nevíme co je
+                if streak == True:
+                    num = streak_num
                 else:
-                    field.append(0)   #Sousedství s nula minami
-                pag.moveRel(10,0)
+                    pag.moveRel(-7,0)
+                    new_col = pag.pixel(pag.position().x, pag.position().y)
+                    if new_col == (255,255,255):
+                        num = "C"
+                        streak_num = "C"
+                    else:
+                        num = 0
+                        streak_num = 0
+                    pag.moveRel(7,0)
+                streak = True
             case c if c == one:
-                field.append(1)    # Sousedství s jednou minou
+                num = 1
+                streak = False
             case c if c == two:
-                field.append(2)    # Sousedství se dvěma minami
+                num = 2
+                streak = False
             case c if c == three:
-                field.append(3)    # Sousedství se třemi minami
+                num = 3
+                streak = False
+            case c if c == four:
+                num = 4
+                streak = False
+            case c if c == five:
+                num = 5
+                streak = False        
+            case c if c == flag:
+                num = "F"
+                streak = False
             case _:
-                field.append("idk")  # Neznámá barva - nelze klasifikovat
-                print(c)              # Výpis neznámé barvy pro DEBUG
+                num = "idk"
+                print(c)
+        if isinstance(num, int) and num > hi_num:
+            hi_num = num
+        return num
+
+def check_screen():
+    global streak
+    pag.moveTo(start_cell)
+    for x in range(cell_height):
+        field = []
+        streak = False
+        for y in range(cell_width):
+
+            col = match_color()
+            field.append(col)
+            
+            pag.moveRel(cell_dis, 0)
         
-        # Pohyb kurzoru o jednu buňku doprava (cell_dis pixelů)
-        pag.moveRel(cell_dis, 0)
-    
-    # Tisk výsledků pro aktuální řádek
-    print(field)
-    rows.append(field.copy())
-    # Reset seznamu pro příští řádek
+        print(field)
+        rows.append(field.copy())
 
-    
-    # Pohyb na začátek dalšího řádku: vlevo (cell_dis*cell_width) a dolů (cell_dis)
-    pag.moveRel(-cell_dis*cell_width, cell_dis)
+        pag.moveRel(-cell_dis*cell_width, cell_dis)
 
-for r in range(len(rows)):
-    for c in range(len(rows[r])):
-        print(f"Checking cell [{r}][{c}] = {rows[r][c]}")
-        if rows[r][c] == 1:
-            print(f"  Found 1 at [{r}][{c}]")
-            temp = 0
-            target = None
-            for dr in range(-1,2):
-                for dc in range(-1,2):
-                    nr = r + dr
-                    nc = c + dc
-                    # ---- EDGE CHECK ----
-                    if 0 <= nr < len(rows) and 0 <= nc < len(rows[r]):
-                        if rows[nr][nc] == "C":
-                            temp += 1
-                            target = (nr, nc)
-            print(f"  Temp count: {temp}")
-            if temp == 1 and target:
-                rows[tr][tc] = "F"
-                tr, tc = target
-                print(f"  Temp == 1! Flagging [{tr}][{tc}]")
-                x = start_cell.x + cell_dis * tc
-                y = start_cell.y + cell_dis * tr
-
-                pag.moveTo(x, y)
-                print(f"  Moved to: ({x}, {y})")
-                pag.rightClick()
+while flag_count != mines:
+    for x in range(1,hi_num+1):
+        check(x)
+    if changes == 0:
+        rows = []
+        check_screen()
+    changes = 0
+        
+for row in rows:
+    print(' '.join(str(x).center(3) for x in row))
