@@ -9,7 +9,6 @@ cell_height = 16
 start_cell = 0
 mines = 40
 flag_count = 0
-name = "Max"
 
 blank = (192,192,192)
 one = (0,0,255)
@@ -35,9 +34,6 @@ window.activate()
 region = (window.left, window.top, window.width, window.height)
 
 pag.moveTo(region[0] + 23, region[1] + 109)
-print(region[0])
-print(region[1])
-print(pag.position())
 start_cell = pag.position()
 start_time = time.time()
 pag.click()
@@ -48,9 +44,7 @@ def check(number):
     global mines
     for r in range(len(rows)):
         for c in range(len(rows[r])):
-            print(f"Checking cell [{r}][{c}] = {rows[r][c]}")
             if rows[r][c] == number:
-                print(f"  Found {number} at [{r}][{c}]")
                 target =  []
                 flags = 0
                 for dr in range(-1,2):
@@ -63,8 +57,6 @@ def check(number):
                                 target.append((nr, nc))
                             if rows[nr][nc] == "F":
                                 flags += 1
-                print(f"  Temp count: {len(target)}")
-                print(f"{flags} flags around")
                 if flags == number:
                     for pos in range(len(target)):
                         x = start_cell.x + cell_dis * target[pos][1]
@@ -78,12 +70,10 @@ def check(number):
                         tr = target[p][0]
                         tc = target[p][1]
                         rows[tr][tc] = "F"
-                        print(f"  Temp == 1! Flagging [{tr}][{tc}]")
                         x = start_cell.x + cell_dis * tc
                         y = start_cell.y + cell_dis * tr
 
                         pag.moveTo(x, y)
-                        print(f"  Moved to: ({x}, {y})")
                         pag.rightClick()
                         flag_count += 1
                         changes += 1
@@ -133,7 +123,6 @@ def match_color(pos):
                 streak = False
             case _:
                 num = "idk"
-                print(c)
         if isinstance(num, int) and num > hi_num:
             hi_num = num
         return num
@@ -149,7 +138,6 @@ def check_screen():
             col = match_color((scanned_pixel_x, scanned_pixel_y))
             field.append(col)
         
-        print(field)
         rows.append(field.copy())
 
 
