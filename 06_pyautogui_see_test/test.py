@@ -1,7 +1,7 @@
 import pyautogui as pag
-import pynput
 import pygetwindow as gw
-import json
+import time
+
 
 cell_dis = 16
 cell_width = 16
@@ -9,6 +9,7 @@ cell_height = 16
 start_cell = 0
 mines = 40
 flag_count = 0
+name = "Max"
 
 blank = (192,192,192)
 one = (0,0,255)
@@ -26,7 +27,8 @@ hi_num = 0
 streak = False
 streak_num = None
 no_streak = 0
-
+loose_streak = False
+time.sleep(2)
 window = gw.getWindowsWithTitle('Minesweeper')[0]
 window.restore()
 window.activate()
@@ -37,6 +39,7 @@ print(region[0])
 print(region[1])
 print(pag.position())
 start_cell = pag.position()
+start_time = time.time()
 pag.click()
 
 def check(number):
@@ -153,9 +156,15 @@ def check_screen():
 while flag_count != mines:
     for x in range(1,hi_num+1):
         check(x)
-    if changes == 0:
+    if changes == 0 and loose_streak == False:
         rows = []
         check_screen()
+        loose_streak = True
+    elif changes == 0 and loose_streak == True:
+        print("You have to guess now, good luck! :)")
+        quit()
+    elif changes > 0:
+        loose_streak = False
     changes = 0
 for r in range(len(rows)):
         for c in range(len(rows[r])):
@@ -169,4 +178,7 @@ for r in range(len(rows)):
         
 for row in rows:
     print(' '.join(str(x).center(3) for x in row))
+end_time = time.time()
+total_time = end_time - start_time
+print(f"Time taken: {total_time:.2f} seconds")
 print("Done!")
