@@ -5,7 +5,7 @@ import json
 
 cell_dis = 16
 cell_width = 16
-cell_height = 16  
+cell_height = 16
 start_cell = 0
 mines = 40
 flag_count = 0
@@ -16,6 +16,8 @@ two = (0, 128, 0)
 three = (255,0,0)
 four = (0,0,128)
 five = (128,0,0)
+six = (0,128,128)
+eight = (192,192,192)
 flag = (0,0,0)
 
 rows = []
@@ -30,7 +32,7 @@ window.restore()
 window.activate()
 region = (window.left, window.top, window.width, window.height)
 
-pag.moveTo(region[0]+23, region[1]+120)
+pag.moveTo(region[0] + 23, region[1] + 109)
 print(region[0])
 print(region[1])
 print(pag.position())
@@ -66,7 +68,7 @@ def check(number):
                         y = start_cell.y + cell_dis * target[pos][0]
                         pag.moveTo(x,y)
                         pag.click()
-                        rows[target[pos][0]][target[pos][1]] = match_color()
+                        rows[target[pos][0]][target[pos][1]] = match_color((x, y))
                         changes += 1
                 elif len(target) + flags == number:
                     for p in range(len(target)):
@@ -84,25 +86,23 @@ def check(number):
                         changes += 1
 
 
-def match_color():
+def match_color(pos):
         global streak
         global hi_num
         global streak_num
-        color = pag.pixel(pag.position().x, pag.position().y)
+        color = pag.pixel(pos[0], pos[1])
         match color:
             case c if c == blank:
                 if streak == True:
                     num = streak_num
                 else:
-                    pag.moveRel(-7,0)
-                    new_col = pag.pixel(pag.position().x, pag.position().y)
+                    new_col = pag.pixel(pos[0] - 7, pos[1])
                     if new_col == (255,255,255):
                         num = "C"
                         streak_num = "C"
                     else:
                         num = 0
                         streak_num = 0
-                    pag.moveRel(7,0)
                 streak = True
             case c if c == one:
                 num = 1
@@ -118,6 +118,12 @@ def match_color():
                 streak = False
             case c if c == five:
                 num = 5
+                streak = False
+            case c if c == six:
+                num = 6
+                streak = False
+            case c if c == eight:
+                num = 8
                 streak = False        
             case c if c == flag:
                 num = "F"
@@ -131,21 +137,18 @@ def match_color():
 
 def check_screen():
     global streak
-    pag.moveTo(start_cell)
     for x in range(cell_height):
         field = []
         streak = False
         for y in range(cell_width):
-
-            col = match_color()
+            scanned_pixel_x =  start_cell.x + cell_dis * y
+            scanned_pixel_y = start_cell.y + cell_dis * x
+            col = match_color((scanned_pixel_x, scanned_pixel_y))
             field.append(col)
-            
-            pag.moveRel(cell_dis, 0)
         
         print(field)
         rows.append(field.copy())
 
-        pag.moveRel(-cell_dis*cell_width, cell_dis)
 
 while flag_count != mines:
     for x in range(1,hi_num+1):
@@ -154,6 +157,16 @@ while flag_count != mines:
         rows = []
         check_screen()
     changes = 0
+for r in range(len(rows)):
+        for c in range(len(rows[r])):
+            print(f"Checking cell [{r}][{c}] = {rows[r][c]}")
+            if rows[r][c] == "C":
+                x = start_cell.x + cell_dis * c
+                y = start_cell.y + cell_dis * r
+                pag.moveTo(x,y)
+                pag.click()
+                rows[r][c] = match_color((x,y))
         
 for row in rows:
     print(' '.join(str(x).center(3) for x in row))
+print("Done!")
