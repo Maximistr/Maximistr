@@ -9,3 +9,5 @@ Zde se nachází seznam všech řešených projektů v rámci tohoto repozitář
 | 03 | Interaktivní Systém Částic s Fyzikou | 20. 03. 2026 |
 | 04 | Brawl Stars API Analytics | 26. 03. 2026 |
 | 05 | Sound to Image Transfer | 26. 03. 2026 |
+| 06 | PyAutoGUI Testing Framework | 31. 03. 2026 |
+| 07 | Hra s Kostkami - Kniffel | 25. 04. 2026 |

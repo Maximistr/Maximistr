@@ -27,13 +27,13 @@ streak = False
 streak_num = None
 no_streak = 0
 loose_streak = False
-time.sleep(2)
+time.sleep(1)
 window = gw.getWindowsWithTitle('Minesweeper')[0]
 window.restore()
 window.activate()
 region = (window.left, window.top, window.width, window.height)
 
-pag.moveTo(region[0] + 23, region[1] + 109)
+pag.moveTo(region[0] + 23, region[1] + 120)
 start_cell = pag.position()
 start_time = time.time()
 pag.click()
