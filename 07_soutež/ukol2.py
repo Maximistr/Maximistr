@@ -1,7 +1,7 @@
 import random
 
 # Nastavení třídy žáka
-class player_class:
+class Player:
     def __init__(self,name):
         self.name = name
         self.points = 0
@@ -20,15 +20,15 @@ class player_class:
         self.trio = [True,0, "Troják"]
         self.general = [True,0, "Genrál"]
         self.straight = [True,0, "Postupka"]
-        self.pyramind = [True,0, "Pyramida"]
+        self.pyramid = [True,0, "Pyramida"]
     def basic_numbers(self,number,amount):
         self.points += number * amount
         self.numbers_cat["{0}".format(number)][0] = False
         self.numbers_cat["{0}".format(number)][1] = number * amount
         print(f"a = {amount}, n = {number}")
         self.full_cat += 1
-    def availible_categories(self):
-        self.categories = [self.small,self.big,self.even,self.odd, self.duos,self.trio,self.general,self.straight,self.pyramind]
+    def available_categories(self):
+        self.categories = [self.small,self.big,self.even,self.odd, self.duos,self.trio,self.general,self.straight,self.pyramid]
         for i in range(len(self.numbers_cat)):
             print(f"{i + 1} | Kategorie : {i + 1} | Počet získaných bodů : {self.numbers_cat["{}".format(i + 1)][1]} | Dostupné? : {self.numbers_cat["{}".format(i + 1)][0]}")
         for x in range(len(self.categories)):
@@ -58,8 +58,8 @@ while True:
         print("Zadejte prosím číslo 2-4 :")
 for player in range(num_p):
     player_name = input(f"Zadej jméno hráče číslo {player + 1}: ")
-    players["p_{0}".format(player + 1)] = player_class({str(player_name)})
-    
+    players["p_{0}".format(player + 1)] = Player({str(player_name)})
+
 # Funkce pro spuštění tahu hráče
 def turn(player):
     rethrows = 0
@@ -108,18 +108,18 @@ def turn(player):
                     print("Zadejte prosím číslo platné číslo kostky")
         else:
             break
-    player.availible_categories()
+    player.available_categories()
     for value in range(6):
         numbers["{0}".format(dice["die_{0}".format(value + 1)])] += 1
     for x in range(6):
-        if numbers["{0}".format(value + 1)] == 1:
+        if numbers["{0}".format(x + 1)] == 1:
             postupka += 1
             solo = x + 1
-        elif numbers["{0}".format(value + 1)] == 2:
+        elif numbers["{0}".format(x + 1)] == 2:
             duos.append(x + 1)
-        elif numbers["{0}".format(value + 1)] == 3:
+        elif numbers["{0}".format(x + 1)] == 3:
             trios.append(x + 1)
-        elif numbers["{0}".format(value + 1)] == 6:
+        elif numbers["{0}".format(x + 1)] == 6:
             general[0] = True
             general[1] = x + 1
     while True:
@@ -186,7 +186,7 @@ while True:
     for play in range(len(players)):
         print(f" Tah hráče {players["p_{0}".format(play + 1)].name} ")
         turn(players["p_{0}".format(play + 1)])
-        players["p_{0}".format(play + 1)].availible_categories()
+        players["p_{0}".format(play + 1)].available_categories()
     if players["p_{0}".format(len(players))].full_cat >= 15:
         break
 
