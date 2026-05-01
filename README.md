@@ -11,3 +11,4 @@ Zde se nachází seznam všech řešených projektů v rámci tohoto repozitář
 | 05 | Sound to Image Transfer | 26. 03. 2026 |
 | 06 | PyAutoGUI Testing Framework | 31. 03. 2026 |
 | 07 | Hra s Kostkami - Kniffel | 25. 04. 2026 |
+| 08 | Maze Builder - Generátor Bludišť | 01. 05. 2026 |
