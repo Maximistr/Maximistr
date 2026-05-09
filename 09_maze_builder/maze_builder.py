@@ -212,6 +212,19 @@ class MazeGUI:
         self.maze = None
         self.path = None
         self.cell_size = 10
+        self.player_pos = None
+        self.game_won = False
+        
+        # Keyboard controls
+        self.root.bind("<Up>", lambda e: self.move_player(-1, 0))
+        self.root.bind("<Down>", lambda e: self.move_player(1, 0))
+        self.root.bind("<Left>", lambda e: self.move_player(0, -1))
+        self.root.bind("<Right>", lambda e: self.move_player(0, 1))
+        self.root.bind("<w>", lambda e: self.move_player(-1, 0))
+        self.root.bind("<a>", lambda e: self.move_player(0, -1))
+        self.root.bind("<s>", lambda e: self.move_player(1, 0))
+        self.root.bind("<d>", lambda e: self.move_player(0, 1))
+        self.root.bind("<r>", lambda e: self.reset_game())
         
         # Panel s tlačítky
         self.button_frame = tk.Frame(root, bg="#f0f0f0", height=60)
@@ -224,6 +237,8 @@ class MazeGUI:
                   bg="#2196F3", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
         tk.Button(self.button_frame, text="Vyčistit", command=self.clear_path, 
                   bg="#FF9800", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        tk.Button(self.button_frame, text="Resetovat hru", command=self.reset_game, 
+                  bg="#FF5722", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
         tk.Button(self.button_frame, text="Uložit", command=self.save_maze, 
                   bg="#9C27B0", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
         tk.Button(self.button_frame, text="Načíst", command=self.load_maze, 
@@ -237,7 +252,8 @@ class MazeGUI:
         self.status_frame = tk.Frame(root, bg="#f0f0f0", height=40)
         self.status_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
         
-        self.status_label = tk.Label(self.status_frame, text="Připraveno. Klikněte na 'Generovat' pro vytvoření bludiště.", 
+        self.status_label = tk.Label(self.status_frame, 
+                                     text="Ovládání: WASD/Šipky = Pohyb | R = Reset | Připraveno. Klikněte na 'Generovat'.", 
                                      bg="#f0f0f0", font=("Arial", 9))
         self.status_label.pack(side=tk.LEFT, padx=5)
     
@@ -273,9 +289,11 @@ class MazeGUI:
                     self.maze.generate()
                     elapsed = time.time() - start_time
                     
+                    self.player_pos = self.maze.start
                     self.path = None
+                    self.game_won = False
                     self.draw_maze()
-                    self.status_label.config(text=f"Bludiště vygenerováno za {elapsed:.3f} sekund! Velikost: {width}x{height}")
+                    self.status_label.config(text=f"Bludiště vygenerováno za {elapsed:.3f} sekund! Velikost: {width}x{height} | Pohybuj se pomocí WASD/Šipek na konec (červené políčko)")
                     dialog.destroy()
                 except ValueError:
                     messagebox.showerror("Chyba", "Zadejte prosím platná čísla!")
@@ -300,7 +318,9 @@ class MazeGUI:
                 y1 = y0 + self.cell_size
                 
                 # Určení barvy
-                if (i, j) == self.maze.start:
+                if (i, j) == self.player_pos:
+                    color = "#00BCD4"  # Cyan - hráč
+                elif (i, j) == self.maze.start:
                     color = "#4CAF50"  # Zelená
                 elif (i, j) == self.maze.end:
                     color = "#F44336"  # Červená
@@ -332,6 +352,46 @@ class MazeGUI:
         else:
             messagebox.showinfo("Výsledek", "Cesta neexistuje!")
             self.status_label.config(text="Cesta neexistuje!")
+    
+    def move_player(self, dx, dy):
+        """Pohybuje hráčem v bludišti s detekcí kolizí."""
+        if not self.maze or not self.player_pos:
+            return
+        
+        if self.game_won:
+            messagebox.showinfo("Gratuluji!", "Už jste vyhrál! Vygenerujte nové bludiště.")
+            return
+        
+        new_x = self.player_pos[0] + dx
+        new_y = self.player_pos[1] + dy
+        
+        # Ověříme hranice
+        if 0 <= new_x < self.maze.height and 0 <= new_y < self.maze.width:
+            # Ověříme kolizi se stěnou
+            if not self.maze.maze[new_x][new_y]:  # False = chodba, můžeme se pohybovat
+                self.player_pos = (new_x, new_y)
+                
+                # Ověříme, zda jsme dosáhli cíle
+                if self.player_pos == self.maze.end:
+                    self.game_won = True
+                    self.draw_maze()
+                    messagebox.showinfo("VYHRÁL JSI!", "Gratulujeme! Dosáhli jste cíle!")
+                    self.status_label.config(text="🎉 GRATULUJI! Dosáhli jste cíle! Stiskněte R pro novou hru nebo 'Generovat' pro nové bludiště.")
+                    return
+                
+                self.draw_maze()
+                self.status_label.config(text=f"Pozice: {self.player_pos} | Cíl: {self.maze.end}")
+            else:
+                # Do zdi!
+                self.status_label.config(text="BUMP! Narazili jste do zdi!")
+    
+    def reset_game(self):
+        """Resetuje pozici hráče na start."""
+        if self.maze:
+            self.player_pos = self.maze.start
+            self.game_won = False
+            self.draw_maze()
+            self.status_label.config(text=f"Hra resetována. Pozice: {self.player_pos} | Cíl: {self.maze.end}")
     
     def clear_path(self):
         """Vyčistí zobrazení cesty."""
@@ -370,7 +430,9 @@ class MazeGUI:
         if filename:
             try:
                 self.maze = MazeBuilder.load_from_file(filename)
+                self.player_pos = self.maze.start
                 self.path = None
+                self.game_won = False
                 self.draw_maze()
                 self.status_label.config(text=f"Bludiště načteno: {filename}")
             except Exception as e:
