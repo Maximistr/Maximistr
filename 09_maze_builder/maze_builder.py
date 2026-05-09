@@ -9,6 +9,8 @@ import json
 import time
 from collections import deque
 from pathlib import Path
+import tkinter as tk
+from tkinter import messagebox, filedialog
 
 
 class MazeBuilder:
@@ -194,92 +196,192 @@ class MazeBuilder:
         return maze
 
 
-def main():
-    """Hlavní funkce programu - interaktivní menu."""
-    print("=" * 50)
-    print("Vítejte v Maze Builder - Generátoru Bludišť")
-    print("=" * 50)
+class MazeGUI:
+    """
+    Grafické uživatelské rozhraní pro Maze Builder.
+    Zobrazuje bludiště v okně a umožňuje interakci přes tlačítka.
+    """
     
-    maze = None
+    def __init__(self, root):
+        """Inicializace GUI okna."""
+        self.root = root
+        self.root.title("Maze Builder - Generátor Bludišť")
+        self.root.geometry("900x750")
+        self.root.resizable(False, False)
+        
+        self.maze = None
+        self.path = None
+        self.cell_size = 10
+        
+        # Panel s tlačítky
+        self.button_frame = tk.Frame(root, bg="#f0f0f0", height=60)
+        self.button_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        # Tlačítka
+        tk.Button(self.button_frame, text="Generovat", command=self.generate_maze, 
+                  bg="#4CAF50", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        tk.Button(self.button_frame, text="Najít cestu", command=self.find_path_btn, 
+                  bg="#2196F3", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        tk.Button(self.button_frame, text="Vyčistit", command=self.clear_path, 
+                  bg="#FF9800", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        tk.Button(self.button_frame, text="Uložit", command=self.save_maze, 
+                  bg="#9C27B0", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        tk.Button(self.button_frame, text="Načíst", command=self.load_maze, 
+                  bg="#673AB7", fg="white", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        
+        # Canvas pro kreslení bludiště
+        self.canvas = tk.Canvas(root, bg="white", highlightthickness=1, highlightbackground="black")
+        self.canvas.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Panel se statistikami
+        self.status_frame = tk.Frame(root, bg="#f0f0f0", height=40)
+        self.status_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
+        
+        self.status_label = tk.Label(self.status_frame, text="Připraveno. Klikněte na 'Generovat' pro vytvoření bludiště.", 
+                                     bg="#f0f0f0", font=("Arial", 9))
+        self.status_label.pack(side=tk.LEFT, padx=5)
     
-    while True:
-        print("\nVyberte akci:")
-        print("1 - Generovat nové bludiště")
-        print("2 - Zobrazit bludiště")
-        print("3 - Najít cestu z bludiště")
-        print("4 - Uložit bludiště")
-        print("5 - Načíst bludiště")
-        print("6 - Konec")
+    def generate_maze(self):
+        """Generuje nové bludiště."""
+        try:
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Parametry bludiště")
+            dialog.geometry("300x150")
+            dialog.transient(self.root)
+            dialog.grab_set()
+            
+            tk.Label(dialog, text="Šířka (doporučeno 11-51):").pack(pady=5)
+            width_entry = tk.Entry(dialog, width=10)
+            width_entry.insert(0, "21")
+            width_entry.pack()
+            
+            tk.Label(dialog, text="Výška (doporučeno 11-51):").pack(pady=5)
+            height_entry = tk.Entry(dialog, width=10)
+            height_entry.insert(0, "21")
+            height_entry.pack()
+            
+            def create():
+                try:
+                    width = int(width_entry.get())
+                    height = int(height_entry.get())
+                    
+                    self.status_label.config(text="Generuji bludiště...")
+                    self.root.update()
+                    
+                    start_time = time.time()
+                    self.maze = MazeBuilder(width, height)
+                    self.maze.generate()
+                    elapsed = time.time() - start_time
+                    
+                    self.path = None
+                    self.draw_maze()
+                    self.status_label.config(text=f"Bludiště vygenerováno za {elapsed:.3f} sekund! Velikost: {width}x{height}")
+                    dialog.destroy()
+                except ValueError:
+                    messagebox.showerror("Chyba", "Zadejte prosím platná čísla!")
+            
+            tk.Button(dialog, text="Vytvořit", command=create, bg="#4CAF50", fg="white").pack(pady=10)
         
-        choice = input("\nVaše volba (1-6): ").strip()
+        except Exception as e:
+            messagebox.showerror("Chyba", f"Chyba při generování: {str(e)}")
+    
+    def draw_maze(self):
+        """Kreslí bludiště na canvas."""
+        if not self.maze:
+            return
         
-        if choice == "1":
-            # Generování nového bludiště
-            try:
-                width = int(input("Zadejte šířku bludiště (doporučeno 11-51): "))
-                height = int(input("Zadejte výšku bludiště (doporučeno 11-51): "))
+        self.canvas.delete("all")
+        
+        for i, row in enumerate(self.maze.maze):
+            for j, cell in enumerate(row):
+                x0 = j * self.cell_size
+                y0 = i * self.cell_size
+                x1 = x0 + self.cell_size
+                y1 = y0 + self.cell_size
                 
-                print("\nGeneruji bludiště...")
-                start_time = time.time()
+                # Určení barvy
+                if (i, j) == self.maze.start:
+                    color = "#4CAF50"  # Zelená
+                elif (i, j) == self.maze.end:
+                    color = "#F44336"  # Červená
+                elif self.path and (i, j) in set(self.path) and (i, j) != self.maze.start:
+                    color = "#FFC107"  # Žlutá
+                elif cell:  # Stěna
+                    color = "#333333"  # Tmavě šedá
+                else:  # Chodba
+                    color = "white"
                 
-                maze = MazeBuilder(width, height)
-                maze.generate()
-                
-                elapsed = time.time() - start_time
-                print(f"Bludiště vygenerováno za {elapsed:.3f} sekund!")
-                
-            except ValueError:
-                print("Chyba: Zadejte prosím čísla!")
+                self.canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline=color)
+    
+    def find_path_btn(self):
+        """Hledá cestu v bludišti."""
+        if not self.maze:
+            messagebox.showwarning("Upozornění", "Nejdříve vygenerujte bludiště!")
+            return
         
-        elif choice == "2":
-            # Zobrazení bludiště
-            if maze:
-                print("\nBludiště (S = start, E = cíl):\n")
-                maze.display()
-            else:
-                print("Nejdříve vygenerujte bludiště!")
+        self.status_label.config(text="Hledám cestu...")
+        self.root.update()
         
-        elif choice == "3":
-            # Hledání cesty
-            if maze:
-                print("\nHledám cestu...")
-                start_time = time.time()
-                
-                path = maze.find_path()
-                
-                elapsed = time.time() - start_time
-                
-                if path:
-                    print(f"Cesta nalezena za {elapsed:.3f} sekund!")
-                    print(f"Délka cesty: {len(path)} buněk\n")
-                    maze.display_with_solution(path)
-                else:
-                    print("Cesta neexistuje!")
-            else:
-                print("Nejdříve vygenerujte bludiště!")
+        start_time = time.time()
+        self.path = self.maze.find_path()
+        elapsed = time.time() - start_time
         
-        elif choice == "4":
-            # Uložení bludiště
-            if maze:
-                filename = input("Zadejte jméno souboru (bez přípony): ").strip()
-                maze.save_to_file(f"{filename}.json")
-            else:
-                print("Nejdříve vygenerujte bludiště!")
-        
-        elif choice == "5":
-            # Načtení bludiště
-            filename = input("Zadejte jméno souboru (bez přípony): ").strip()
-            try:
-                maze = MazeBuilder.load_from_file(f"{filename}.json")
-            except FileNotFoundError:
-                print(f"Soubor '{filename}.json' nenalezen!")
-        
-        elif choice == "6":
-            print("\nDěkuji za použití Maze Builder!")
-            break
-        
+        if self.path:
+            self.draw_maze()
+            self.status_label.config(text=f"Cesta nalezena za {elapsed:.3f} sekund! Délka: {len(self.path)} buněk")
         else:
-            print("Neplatná volba!")
+            messagebox.showinfo("Výsledek", "Cesta neexistuje!")
+            self.status_label.config(text="Cesta neexistuje!")
+    
+    def clear_path(self):
+        """Vyčistí zobrazení cesty."""
+        self.path = None
+        self.draw_maze()
+        self.status_label.config(text="Cesta vyčištěna.")
+    
+    def save_maze(self):
+        """Uloží bludiště do souboru."""
+        if not self.maze:
+            messagebox.showwarning("Upozornění", "Nejdříve vygenerujte bludiště!")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir=".",
+            initialfile="maze.json"
+        )
+        
+        if filename:
+            try:
+                self.maze.save_to_file(filename)
+                self.status_label.config(text=f"Bludiště uloženo: {filename}")
+                messagebox.showinfo("Úspěch", "Bludiště uloženo!")
+            except Exception as e:
+                messagebox.showerror("Chyba", f"Chyba při ukládání: {str(e)}")
+    
+    def load_maze(self):
+        """Načte bludiště ze souboru."""
+        filename = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialdir="."
+        )
+        
+        if filename:
+            try:
+                self.maze = MazeBuilder.load_from_file(filename)
+                self.path = None
+                self.draw_maze()
+                self.status_label.config(text=f"Bludiště načteno: {filename}")
+            except Exception as e:
+                messagebox.showerror("Chyba", f"Chyba při načítání: {str(e)}")
+
+
+def main():
+    """Hlavní funkce programu - spuští grafické rozhraní."""
+    root = tk.Tk()
+    gui = MazeGUI(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
