@@ -33,7 +33,7 @@ window.restore()
 window.activate()
 region = (window.left, window.top, window.width, window.height)
 
-pag.moveTo(region[0] + 23, region[1] + 120)
+pag.moveTo(region[0] + 23, region[1] + 110)
 start_cell = pag.position()
 start_time = time.time()
 pag.click()
