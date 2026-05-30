@@ -14,3 +14,4 @@ Zde se nachází seznam všech řešených projektů v rámci tohoto repozitář
 | 08 | PySide Test | |
 | 09 | Maze Builder - Generátor Bludišť | 01. 05. 2026 |
 | 10 | Jenga 3D Izometrická Krychle | 18. 05. 2026 |
+| 12 | VMacropad Manager | 30. 05. 2026 |
