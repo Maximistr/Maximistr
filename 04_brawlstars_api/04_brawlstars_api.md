@@ -15,7 +15,7 @@ The current web application is deployed and accessible at:
 - **api_pull.py** - Backend script for fetching and storing player data
   - Retrieves player information from Brawl Stars API
   - Saves player data to JSON format
-  - Tracks trophy progression over time in CSV format
+  - Tracks trophy and ranked progression over time in CSV format
 
 - **show_data.py** - Frontend dashboard for data visualization
   - Interactive Streamlit web application
