@@ -6,8 +6,12 @@ with sync_playwright() as p:
     page.goto("https://store.supercell.com/brawlstars")
     time.sleep(2)
 
-    # Use 'button:visible' to get only the buttons a user can see
-    # .all() converts the locator group into a Python list of individual elements
     page.get_by_role("button", name="Accept All Cookies").click()
+    time.sleep(2)
+    buttons = page.get_by_role("button").all()
 
-    time.sleep(10)
+    for button in buttons:
+
+     print(button.text_content())
+
+    time.sleep(5)
