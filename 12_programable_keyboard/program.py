@@ -1,0 +1,1456 @@
+import customtkinter as ctk
+import tkinter as tk
+import tkinter.ttk as ttk
+from tkinter import messagebox, colorchooser
+import hid  # For USB HID device communication
+import json  # For saving/loading configuration
+import os
+import time
+import threading  # For background tasks
+import sys
+import math  # For geometry calculations
+import subprocess
+import webbrowser
+import ctypes  # For Windows-specific features
+import urllib.request  # For update checking
+from PIL import Image, ImageDraw  # For tray icon creation
+import pystray  # For system tray integration
+import re  # For regex pattern matching
+
+# --- WINDOWS APP ID FIX ---
+# Allows the app to display its own icon in the taskbar instead of the Python icon
+try:
+    myappid = u'VMacropad.Manager.1.1.1'
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+except:
+    pass
+
+# --- CUSTOMTKINTER SCROLL BUG FIX ---
+# When using native ttk.Combobox, CustomTkinter's scrollable frame catches
+# inner popdown string references and crashes. We patch it safely here:
+import customtkinter.windows.widgets.ctk_scrollable_frame as ctk_sf
+original_wheel = ctk_sf.CTkScrollableFrame._mouse_wheel_all
+def safe_mouse_wheel(self, event):
+    if isinstance(event.widget, str):
+        return
+    return original_wheel(self, event)
+ctk_sf.CTkScrollableFrame._mouse_wheel_all = safe_mouse_wheel
+
+# --- DEPENDENCIES CHECK ---
+# These libraries enable app auto-switching based on active window
+psutil = None
+win32gui = None
+win32process = None
+win32com = None
+
+try:
+    import psutil  # Process utilities
+    import win32gui  # Windows GUI interaction
+    import win32process  # Process information
+    import win32com.client  # COM interface for Windows
+except ImportError:
+    print("Warning: 'psutil' or 'pywin32' missing. Auto-switching disabled.")
+
+# --- THEME DEFINITION ---
+# Color scheme for dark theme UI
+class Theme:
+    MAIN_BG = "#000000"  # Main background
+    CONTAINER_BG = "#121212"  # Container/panel background
+    WIDGET_BG = "#1c1c1c"  # Widget background
+    ACTIVE_BUTTON = "#e5e5e5"  # Active/selected button color
+    INACTIVE_PILL = "#282828"  # Inactive button/pill color
+    BUTTON_HOVER = "#333333"  # Button hover state
+    CONNECTED_COLOR = "#76ff03"  # Connected status color (green)
+    DISCONNECTED_COLOR = "#ff3d00"  # Disconnected status color (red)
+    TEXT_PRIMARY = "#ffffff"  # Primary text color
+    TEXT_INVERSE = "#000000"  # Inverse text color (for contrast)
+    TEXT_SECONDARY = "#8e8e8e"  # Secondary/dimmed text
+    TEXT_DISABLED = "#4d4d4d"  # Disabled text
+    FONT_HEADER = ("Segoe UI", 20, "bold")
+    FONT_SUBHEADER = ("Segoe UI", 14, "bold")
+    FONT_BODY = ("Segoe UI", 12, "normal")
+
+# --- HARDWARE DEFAULTS ---
+# Default USB vendor/product IDs for the macropad device
+DEFAULT_VENDOR_ID = 0x1189
+DEFAULT_PRODUCT_ID = 0x8890
+REPORT_ID = 0x03  # USB HID report ID for communication
+# 9 actions: 6 buttons (1-6) + 3 knob actions (13, 15, 14 = CCW, CW, Press)
+ACTION_IDS =[1, 2, 3, 4, 5, 6, 13, 15, 14]
+
+# --- KEY MAPPINGS ---
+# HID keyboard scan codes mapped to readable key names
+KEY_MAP = {
+    "None": 0,
+    "A": 4, "B": 5, "C": 6, "D": 7, "E": 8, "F": 9, "G": 10,
+    "H": 11, "I": 12, "J": 13, "K": 14, "L": 15, "M": 16, "N": 17, "O": 18,
+    "P": 19, "Q": 20, "R": 21, "S": 22, "T": 23, "U": 24, "V": 25, "W": 26,
+    "X": 27, "Y": 28, "Z": 29,
+    "1": 30, "2": 31, "3": 32, "4": 33, "5": 34, "6": 35, "7": 36, "8": 37, "9": 38, "0": 39,
+    "Enter": 40, "Esc": 41, "Backspace": 42, "Tab": 43, "Space": 44, "CapsLock": 57,
+    "Minus (-)": 45, "Equal (=)": 46, "L Bracket ([)": 47, "R Bracket (])": 48,
+    "Backslash (\\)": 49, "Non-US Hash (#)": 50, "Semicolon (;)": 51, "Quote (')": 52, 
+    "Grave (`)": 53, "Comma (,)": 54, "Dot (.)": 55, "Slash (/)": 56, 
+    "Intl Backslash (IS0)": 100,
+    "F1": 58, "F2": 59, "F3": 60, "F4": 61, "F5": 62, "F6": 63,
+    "F7": 64, "F8": 65, "F9": 66, "F10": 67, "F11": 68, "F12": 69,
+    "F13": 104, "F14": 105, "F15": 106, "F16": 107, "F17": 108, "F18": 109,
+    "F19": 110, "F20": 111, "F21": 112, "F22": 113, "F23": 114, "F24": 115,
+    "PrintScreen": 70, "ScrollLock": 71, "Pause": 72, "Insert": 73, 
+    "Home": 74, "PageUp": 75, "Delete": 76, "End": 77, "PageDown": 78,
+    "Right Arrow": 79, "Left Arrow": 80, "Down Arrow": 81, "Up Arrow": 82,
+    "Application / Context Menu": 101, 
+    "NumLock": 83, "KP Divide (/)": 84, "KP Multiply (*)": 85, "KP Minus (-)": 86, "KP Plus (+)": 87, "KP Enter": 88,
+    "KP 1": 89, "KP 2": 90, "KP 3": 91, "KP 4": 92, "KP 5": 93, "KP 6": 94,
+    "KP 7": 95, "KP 8": 96, "KP 9": 97, "KP 0": 98, "KP Dot (.)": 99, "KP Equal (=)": 103,
+    "Left Ctrl": 224, "Left Shift": 225, "Left Alt": 226, "Left GUI (Win)": 227,
+    "Right Ctrl": 228, "Right Shift": 229, "Right Alt": 230, "Right GUI (Win)": 231,
+}
+
+# --- MEDIA/CONSUMER CONTROL MAPPINGS ---
+# Maps media control names to their USB HID codes (page, code)
+MEDIA_MAP = {
+    "None": (0, 0), 
+    "Play/Pause": (0xCD, 0), "Stop": (0xB7, 0), 
+    "Next Track": (0xB5, 0), "Prev Track": (0xB6, 0), 
+    "Fast Forward": (0xB3, 0), "Rewind": (0xB4, 0),
+    "Mute": (0xE2, 0), "Vol Up": (0xE9, 0), "Vol Down": (0xEA, 0),
+    "Brightness Up": (0x6F, 0), "Brightness Down": (0x70, 0),
+    "PC Sleep": (0x32, 0), "PC Wake": (0x33, 0),
+    "Calculator": (0x92, 0x01), "File Explorer": (0x94, 0x01), 
+    "Email": (0x8A, 0x01), 
+    "Web Home": (0x23, 0x02), "Web Search": (0x21, 0x02),
+    "Web Back": (0x24, 0x02), "Web Forward": (0x25, 0x02),
+    "Web Stop": (0x26, 0x02), "Web Refresh": (0x27, 0x02),
+    "Web Favorites": (0x2A, 0x02)
+}
+
+# --- MOUSE BUTTON MAPPINGS ---
+# Bit flags for mouse buttons (HID standard)
+MOUSE_BUTTONS = {
+    "None": 0, "Left Click": 1, "Right Click": 2, "Middle Click": 4, 
+    "Back (Btn 4)": 8, "Forward (Btn 5)": 16
+}
+
+# --- MOUSE WHEEL MAPPINGS ---
+MOUSE_WHEEL = {
+    "None": 0, "Scroll Up": 1, "Scroll Down": 255
+}
+
+# --- LED MODE MAPPINGS ---
+# Different LED lighting modes
+LED_MODES = {"Off": 0, "Static": 1, "Breathing": 2}
+
+# --- APP INFO ---
+# Application metadata
+APP_NAME = "VMacropad"
+APP_VERSION = "1.1.1"
+GITHUB_REPO = "visiuun/vmacropad"
+
+# --- FILE PATHS ---
+# Application data storage locations
+APP_DATA_DIR = os.path.join(os.getenv('APPDATA'), APP_NAME)
+if not os.path.exists(APP_DATA_DIR):
+    try: os.makedirs(APP_DATA_DIR)
+    except: pass
+CONFIG_FILE = os.path.join(APP_DATA_DIR, "config.json")  # Main app configuration
+PRESETS_FILE = os.path.join(APP_DATA_DIR, "presets.json")  # Saved button/knob configurations
+MAPPINGS_FILE = os.path.join(APP_DATA_DIR, "mappings.json")  # App-to-preset mappings
+
+# --- HARDWARE CONTROLLER ---
+# Handles USB communication with the macropad device
+class MacroPadDevice:
+    """Manages connection and communication with the macropad hardware."""
+    def __init__(self, vendor_id, product_id):
+        self.device = None
+        self.working_strategy = None  # Track which write method works
+        self._connected = False
+        self.vid = vendor_id
+        self.pid = product_id
+
+    def is_connected(self):
+        """Check if device is currently connected."""
+        return self._connected
+
+    def scan_for_device(self):
+        """Search for the macropad device by VID/PID."""
+        try:
+            devices = hid.enumerate(self.vid, self.pid)
+            # Try to find interface 1 first (correct HID interface)
+            for d in devices:
+                if d.get('interface_number') == 1:
+                    return d['path']
+            # Fallback: look for "mi_01" in device path
+            for d in devices:
+                path_str = d['path'].decode('utf-8') if isinstance(d['path'], bytes) else d['path']
+                if "mi_01" in path_str.lower():
+                    return d['path']
+            # Last resort: use first device found
+            if devices:
+                return devices[0]['path']
+        except:
+            pass
+        return None
+
+    def connect(self):
+        """Establish connection to the device."""
+        if self.device:
+            try: self.device.close()
+            except: pass
+            self.device = None
+        
+        target_path = self.scan_for_device()
+        if target_path:
+            try:
+                self.device = hid.device()
+                self.device.open_path(target_path)
+                self.device.set_nonblocking(1)  # Non-blocking reads
+                self._connected = True
+                return True
+            except:
+                self.device = None
+        
+        self._connected = False
+        return False
+
+    def write_data(self, payload):
+        """Send data to device. Tries both output and feature report methods."""
+        if not self.device: return False
+        buf_65 = [REPORT_ID] + payload + [0] * (64 - len(payload))
+        # Try both write methods; remember which one works
+        strategies =[('output', buf_65), ('feature', buf_65)]
+        
+        if self.working_strategy == 'output': strategies = [strategies[0], strategies[1]]
+        elif self.working_strategy == 'feature': strategies = [strategies[1], strategies[0]]
+
+        for mode, buf in strategies:
+            try:
+                res = -1
+                if mode == 'output': res = self.device.write(buf)
+                else: res = self.device.send_feature_report(buf)
+                if res >= 0:
+                    self.working_strategy = mode  # Remember this works
+                    return True
+            except: 
+                continue
+        return False
+
+    def select_layer(self, layer=0): 
+        """Select which layer of the keypad to program (0-3)."""
+        return self.write_data([0xA1, layer])
+    
+    def save_to_flash(self): 
+        """Save current configuration to device flash memory."""
+        return self.write_data([0xAA, 0xAA])
+    
+    def set_key(self, ui_index, mod, code):
+        """Configure keyboard key action for a button."""
+        action = ACTION_IDS[ui_index]
+        self.write_data([action, 1, 1, 0, 0, 0])
+        return self.write_data([action, 1, 1, 1, mod, code])
+
+    def set_media(self, ui_index, b1, b2):
+        """Configure media/consumer control action for a button."""
+        action = ACTION_IDS[ui_index]
+        return self.write_data([action, 2, b1, b2])
+
+    def set_mouse(self, ui_index, btn, scroll, mod=0):
+        """Configure mouse action for a button."""
+        action = ACTION_IDS[ui_index]
+        
+        # Hardware Limitation Fix: The generic macropad firmware descriptor only supports a 3-button mouse. 
+        # Attempting to send Back (8) or Forward (16) causes the OS to ignore it because it falls outside the descriptor bits.
+        # We silently translate these into standard Multimedia Consumer Control keys (Web Back / Web Forward)
+        if btn == 8:
+            return self.set_media(ui_index, 0x24, 0x02) # 0x24 = AC Back
+        elif btn == 16:
+            return self.set_media(ui_index, 0x25, 0x02) # 0x25 = AC Forward
+            
+        return self.write_data([action, 3, btn, 0, 0, scroll, mod])
+
+    def set_led(self, mode): 
+        """Set LED mode (off, static, breathing)."""
+        return self.write_data([0xB0, 0x08, mode])
+
+
+# --- MAIN APPLICATION ---
+# GUI application for programming the macropad
+class VMacroApp(ctk.CTk):
+    """Main application window for macropad configuration."""
+    def __init__(self):
+        super().__init__()
+        
+        # Load config early before UI initialization
+        self.load_config_early()
+        
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("dark-blue")
+        self.title(f"V Macropad Manager")
+        self.geometry("1000x700")
+        self.configure(fg_color=Theme.MAIN_BG)
+        self.protocol("WM_DELETE_WINDOW", self.on_close_attempt)  # Handle window close
+        self.minsize(950, 650)
+        
+        # Set application icon
+        try:
+            icon_path = self.resource_path("vmacropad.ico")
+            self.iconbitmap(icon_path)
+        except Exception:
+            pass
+
+        # Initialize device and configuration
+        self.pad = MacroPadDevice(self.cfg_vid, self.cfg_pid)
+        self.presets = self.load_presets()  # Load saved presets
+        self.app_mappings = self.load_mappings()  # Load app-to-preset mappings
+        
+        # Current state variables
+        self.current_data =[{"type": "key", "mod": 0, "code": 0, "mouse_btn": 0, "mouse_scroll": 0} for _ in range(9)]
+        self.led_mode = 1
+        self.selected_key_index = 0  # Currently selected button (0-8)
+        self.current_preset_name = None
+        
+        # Threading and state flags
+        self.is_uploading = False
+        self.upload_lock = threading.Lock()
+        self.connected_last_frame = False
+        self.tray_icon = None
+        self.running = True
+
+        # Auto-switch tracking
+        self.last_detected_target = None
+        self.focus_timer_start = 0
+        self.last_auto_uploaded_preset = None
+        self.manual_override = False  # Prevents auto-switching when manually selecting
+
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        # Build UI
+        self.setup_sidebar()  # Left panel with presets
+        self.setup_main_area()  # Right panel with visualizer and editor
+        self.load_config_state_ui_vars()  # Restore last used preset
+        self.refresh_preset_list() 
+        self.toggle_startup()  # Set up startup shortcut if enabled
+
+        # Start hardware and monitoring threads
+        self.perform_initial_connection()
+        self.setup_tray()  # System tray integration
+        
+        self.check_conn_loop()  # Monitor device connection
+        self.app_monitor_loop()  # Monitor active window for auto-switching
+        
+        self.init_complete = True  # Mark initialization as complete
+        
+        # Show window or minimize to tray based on config
+        if self.cfg_tray_enabled:
+            self.withdraw() 
+        else:
+            self.deiconify()
+
+        # Check for updates only if running as standalone executable
+        if getattr(sys, 'frozen', False):
+            threading.Thread(target=self.check_for_updates, daemon=True).start()
+
+    def resource_path(self, relative_path):
+        """Get path to resource file (works with PyInstaller bundled apps)."""
+        try:
+            base_path = sys._MEIPASS  # PyInstaller temporary folder
+        except Exception:
+            base_path = os.path.abspath(".")
+        return os.path.join(base_path, relative_path)
+
+    def load_config_early(self):
+        """Load configuration before UI initialization."""
+        # Set defaults
+        self.cfg_vid = DEFAULT_VENDOR_ID
+        self.cfg_pid = DEFAULT_PRODUCT_ID
+        self.default_preset_name = None
+        self.cfg_notify_preset = False
+        self.cfg_notify_status = False
+        self.cfg_tray_enabled = True
+        self.cfg_startup = True
+        
+        # Load from file if exists
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    conf = json.load(f)
+                    self.cfg_vid = conf.get("vendor_id", DEFAULT_VENDOR_ID)
+                    self.cfg_pid = conf.get("product_id", DEFAULT_PRODUCT_ID)
+                    self.default_preset_name = conf.get("default_preset")
+                    self.cfg_notify_preset = conf.get("notify_preset", False)
+                    self.cfg_notify_status = conf.get("notify_status", False)
+                    self.cfg_tray_enabled = conf.get("tray_enabled", True)
+                    self.cfg_startup = conf.get("startup_enabled", True)
+            except: pass
+
+    def load_config_state_ui_vars(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r") as f:
+                    conf = json.load(f)
+                    last = conf.get("last_preset")
+                    if last and last in self.presets:
+                        self.load_preset_by_name(last)
+            except: pass
+        
+        if not self.current_preset_name and self.presets:
+            self.load_preset_by_name(list(self.presets.keys())[0])
+
+    def save_config_state(self):
+        try:
+            with open(CONFIG_FILE, "w") as f:
+                json.dump({
+                    "vendor_id": self.cfg_vid,
+                    "product_id": self.cfg_pid,
+                    "last_preset": self.current_preset_name,
+                    "default_preset": self.default_preset_name,
+                    "notify_preset": self.cfg_notify_preset,
+                    "notify_status": self.cfg_notify_status,
+                    "tray_enabled": self.cfg_tray_enabled,
+                    "startup_enabled": self.cfg_startup
+                }, f, indent=4)
+        except: pass
+
+    def perform_initial_connection(self):
+        def attempt():
+            for _ in range(10):
+                if not self.running: return
+                if self.pad.connect():
+                    self.after(0, self.safe_update_status, True)
+                    return
+                time.sleep(0.5)
+        threading.Thread(target=attempt, daemon=True).start()
+
+    def safe_update_status(self, connected):
+        if self.running and self.winfo_exists():
+            self.update_status_ui(connected)
+
+    def notify_user(self, title, message):
+        if self.tray_icon:
+            self.update_tray_icon()
+            def _delayed_notify():
+                time.sleep(0.25)
+                if self.tray_icon:
+                    self.tray_icon.notify(message, title)
+            threading.Thread(target=_delayed_notify, daemon=True).start()
+
+    def check_for_updates(self):
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            req = urllib.request.Request(url, headers={'User-Agent': 'VMacropad-App'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+                tag = data.get("tag_name", "").lstrip("vV")
+                
+                def parse_ver(v): return tuple(map(int, (v.split("."))))
+                try: 
+                    is_newer = parse_ver(tag) > parse_ver(APP_VERSION)
+                except: 
+                    is_newer = False
+                
+                if tag and is_newer:
+                    assets = data.get("assets",[])
+                    exe_url = next((a["browser_download_url"] for a in assets if a["name"].endswith(".exe")), None)
+                    if exe_url:
+                        self.after(0, lambda: self.show_update_button(tag, exe_url))
+        except Exception as e:
+            print(f"Update check failed: {e}")
+
+    def show_update_button(self, ver, url):
+        self.btn_update = ctk.CTkButton(self.sidebar, text=f"UPDATE v{ver} READY",
+                                        font=("Segoe UI", 12, "bold"),
+                                        fg_color=Theme.CONNECTED_COLOR, text_color="black",
+                                        hover_color="#5eb802", command=lambda: self.perform_update(url))
+        self.btn_update.grid(row=5, column=0, sticky="ew", padx=20, pady=(0, 20))
+
+    def perform_update(self, url):
+        self.btn_update.configure(text="DOWNLOADING...", state="disabled")
+        def _dl():
+            try:
+                temp_exe = os.path.join(APP_DATA_DIR, "vmacropad_update.exe")
+                req = urllib.request.Request(url, headers={'User-Agent': 'VMacropad-App'})
+                with urllib.request.urlopen(req, timeout=15) as resp, open(temp_exe, "wb") as f:
+                    f.write(resp.read())
+                    
+                # Create a separate 'update_admin.bat' that has admin rights to replace the locked EXE
+                bat_path = os.path.join(APP_DATA_DIR, "update_admin.bat")
+                with open(bat_path, "w") as f:
+                    f.write(f'@echo off\n')
+                    f.write(f'timeout /t 2 /nobreak >nul\n')
+                    f.write(f'taskkill /F /IM "VMacropad.exe" >nul 2>&1\n')
+                    f.write(f'del "{sys.executable}"\n')
+                    f.write(f'move /y "{temp_exe}" "{sys.executable}"\n')
+                    f.write(f'start "" "{sys.executable}"\n')
+                    f.write(f'del "%~f0"')
+                
+                # This triggers the UAC prompt to run the batch script as admin
+                ctypes.windll.shell32.ShellExecuteW(None, "runas", bat_path, None, None, 1)
+                self.quit_app()
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Update Failed", str(e)))
+                self.after(0, lambda: self.btn_update.configure(text="UPDATE FAILED", fg_color=Theme.DISCONNECTED_COLOR))
+        threading.Thread(target=_dl, daemon=True).start()
+
+    def load_presets(self):
+        """Load all saved presets from file."""
+        if os.path.exists(PRESETS_FILE):
+            try:
+                with open(PRESETS_FILE, "r") as f: return json.load(f)
+            except: pass
+        return {}
+
+    def save_presets_file(self):
+        """Save all presets to file."""
+        try:
+            with open(PRESETS_FILE, "w") as f: json.dump(self.presets, f, indent=4)
+        except: pass
+
+    def load_mappings(self):
+        """Load app-to-preset mappings from file."""
+        if os.path.exists(MAPPINGS_FILE):
+            try:
+                with open(MAPPINGS_FILE, "r") as f: 
+                    data = json.load(f)
+                    # Handle old format migration
+                    if "processes" not in data and "titles" not in data:
+                        return {"processes": data, "titles": {}}
+                    return data
+            except: pass
+        return {"processes": {}, "titles": {}}
+
+    def save_mappings_file(self):
+        """Save app-to-preset mappings to file."""
+        try:
+            with open(MAPPINGS_FILE, "w") as f: json.dump(self.app_mappings, f, indent=4)
+        except: pass
+
+    def toggle_startup(self):
+        try:
+            startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+            shortcut_path = os.path.join(startup_folder, "VMacropad.lnk")
+            
+            if self.cfg_startup:
+                target = sys.executable
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortcut(shortcut_path)
+                shortcut.TargetPath = target
+                if not getattr(sys, 'frozen', False):
+                    shortcut.Arguments = f'"{os.path.abspath(__file__)}"'
+                shortcut.WorkingDirectory = os.path.dirname(target)
+                shortcut.IconLocation = target
+                shortcut.Save()
+            else:
+                if os.path.exists(shortcut_path):
+                    os.remove(shortcut_path)
+        except Exception: pass
+
+    def setup_sidebar(self):
+        self.sidebar = ctk.CTkFrame(self, fg_color=Theme.CONTAINER_BG, corner_radius=0, width=260)
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        self.sidebar.grid_rowconfigure(2, weight=1)
+        self.sidebar.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(self.sidebar, text="V MACROPAD", font=Theme.FONT_HEADER, text_color=Theme.TEXT_PRIMARY).grid(row=0, column=0, pady=(30, 10))
+        ctk.CTkLabel(self.sidebar, text="PRESET LIBRARY", font=Theme.FONT_BODY, text_color=Theme.TEXT_SECONDARY).grid(row=1, column=0, pady=(0, 20))
+
+        self.preset_scroll = ctk.CTkScrollableFrame(self.sidebar, fg_color="transparent")
+        self.preset_scroll.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
+        self.preset_widgets = {} 
+
+        btn_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        btn_frame.grid(row=3, column=0, sticky="ew", pady=20, padx=20)
+        btn_frame.grid_columnconfigure((0,1), weight=1)
+
+        self.btn_add = ctk.CTkButton(btn_frame, text="NEW", font=Theme.FONT_BODY, fg_color=Theme.BUTTON_HOVER, hover_color=Theme.TEXT_DISABLED, command=self.add_preset)
+        self.btn_add.grid(row=0, column=0, padx=5, sticky="ew")
+        
+        self.btn_del = ctk.CTkButton(btn_frame, text="DELETE", font=Theme.FONT_BODY, fg_color="#441111", hover_color="#802122", command=self.del_preset)
+        self.btn_del.grid(row=0, column=1, padx=5, sticky="ew")
+
+        self.btn_settings = ctk.CTkButton(self.sidebar, text="SETTINGS", font=Theme.FONT_BODY, fg_color="transparent", border_width=1, border_color=Theme.TEXT_DISABLED, command=self.open_settings_ui)
+        self.btn_settings.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 20))
+        
+        self.refresh_preset_list()
+
+    def open_settings_ui(self):
+        win = ctk.CTkToplevel(self)
+        win.title("Settings")
+        win.geometry("420x560")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.configure(fg_color=Theme.CONTAINER_BG)
+        
+        try:
+            icon_path = self.resource_path("vmacropad.ico")
+            win.iconbitmap(icon_path)
+        except: pass
+        
+        try:
+            x = self.winfo_x() + (self.winfo_width()//2) - 210
+            y = self.winfo_y() + (self.winfo_height()//2) - 280
+            win.geometry(f"+{x}+{y}")
+        except: pass
+
+        ctk.CTkLabel(win, text="SETTINGS", font=Theme.FONT_HEADER).pack(pady=(20, 0))
+        ctk.CTkLabel(win, text=f"Version {APP_VERSION}", font=("Segoe UI", 10), text_color=Theme.TEXT_DISABLED).pack(pady=(0, 15))
+        
+        var_notif_p = ctk.BooleanVar(value=self.cfg_notify_preset)
+        var_notif_s = ctk.BooleanVar(value=self.cfg_notify_status)
+        var_tray = ctk.BooleanVar(value=self.cfg_tray_enabled)
+        var_start = ctk.BooleanVar(value=self.cfg_startup)
+        
+        frm_hw = ctk.CTkFrame(win, fg_color="transparent")
+        frm_hw.pack(pady=10, padx=40, fill="x")
+        ctk.CTkLabel(frm_hw, text="Vendor ID (Hex):", text_color=Theme.TEXT_SECONDARY).grid(row=0, column=0, sticky="w")
+        entry_vid = ctk.CTkEntry(frm_hw, width=120)
+        entry_vid.insert(0, hex(self.cfg_vid))
+        entry_vid.grid(row=0, column=1, padx=10)
+        
+        ctk.CTkLabel(frm_hw, text="Product ID (Hex):", text_color=Theme.TEXT_SECONDARY).grid(row=1, column=0, sticky="w", pady=5)
+        entry_pid = ctk.CTkEntry(frm_hw, width=120)
+        entry_pid.insert(0, hex(self.cfg_pid))
+        entry_pid.grid(row=1, column=1, padx=10, pady=5)
+
+        def save_and_close():
+            self.cfg_notify_preset = var_notif_p.get()
+            self.cfg_notify_status = var_notif_s.get()
+            old_tray = self.cfg_tray_enabled
+            self.cfg_tray_enabled = var_tray.get()
+            if old_tray != self.cfg_tray_enabled:
+                if self.cfg_tray_enabled: self.setup_tray()
+                else: 
+                    if self.tray_icon: self.tray_icon.stop()
+                    self.tray_icon = None
+            self.cfg_startup = var_start.get()
+            self.toggle_startup()
+            try:
+                new_vid = int(entry_vid.get(), 16)
+                new_pid = int(entry_pid.get(), 16)
+                if new_vid != self.cfg_vid or new_pid != self.cfg_pid:
+                    self.cfg_vid = new_vid
+                    self.cfg_pid = new_pid
+                    self.pad.vid = new_vid
+                    self.pad.pid = new_pid
+                    messagebox.showinfo("Hardware IDs", "Hardware IDs updated. Reconnecting...")
+                    self.pad.connect()
+            except ValueError:
+                messagebox.showerror("Error", "Invalid Hex format for VID/PID (Use 0x...)")
+                return
+            self.save_config_state()
+            win.destroy()
+
+        ctk.CTkCheckBox(win, text="Notify on Preset Change", variable=var_notif_p).pack(pady=10, padx=40, anchor="w")
+        ctk.CTkCheckBox(win, text="Notify on Connect/Disconnect", variable=var_notif_s).pack(pady=10, padx=40, anchor="w")
+        ctk.CTkCheckBox(win, text="Enable System Tray Icon", variable=var_tray).pack(pady=10, padx=40, anchor="w")
+        ctk.CTkCheckBox(win, text="Start with Windows", variable=var_start).pack(pady=10, padx=40, anchor="w")
+        
+        ctk.CTkButton(win, text="SAVE & CLOSE", command=save_and_close, fg_color=Theme.ACTIVE_BUTTON, text_color="black").pack(pady=25)
+        
+        ctk.CTkLabel(win, text="Created by Visiuun", text_color=Theme.TEXT_SECONDARY).pack(pady=(10, 0))
+        link = ctk.CTkButton(win, text="github.com/visiuun", fg_color="transparent", text_color="#4da6ff", hover=False, 
+                             command=lambda: webbrowser.open("https://github.com/visiuun"))
+        link.pack()
+
+    def setup_main_area(self):
+        self.main_frame = ctk.CTkFrame(self, fg_color=Theme.MAIN_BG, corner_radius=0)
+        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
+        self.main_frame.grid_rowconfigure(1, weight=1) 
+        self.main_frame.grid_columnconfigure(0, weight=1)
+
+        header_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        header_frame.grid(row=0, column=0, sticky="ew", pady=(10, 20))
+        
+        self.lbl_status_icon = ctk.CTkLabel(header_frame, text="●", font=("Arial", 24), text_color=Theme.DISCONNECTED_COLOR)
+        self.lbl_status_icon.pack(side="left", padx=(0, 10))
+        
+        self.lbl_status_text = ctk.CTkLabel(header_frame, text="DISCONNECTED", font=Theme.FONT_SUBHEADER, text_color=Theme.TEXT_SECONDARY)
+        self.lbl_status_text.pack(side="left")
+
+        self.btn_set_default = ctk.CTkButton(header_frame, text="SET AS DEFAULT", 
+                                            font=("Segoe UI", 11, "bold"), 
+                                            fg_color="#333", 
+                                            width=120, 
+                                            command=self.set_active_as_default)
+        self.btn_set_default.pack(side="right", padx=5)
+
+        self.btn_link_app = ctk.CTkButton(header_frame, text="LINK TO APP", 
+                                        font=("Segoe UI", 11, "bold"), 
+                                        fg_color=Theme.WIDGET_BG, 
+                                        width=120, 
+                                        command=self.link_current_preset_to_app)
+        self.btn_link_app.pack(side="right", padx=5)
+
+        self.vis_container = ctk.CTkFrame(self.main_frame, fg_color=Theme.WIDGET_BG, corner_radius=15)
+        self.vis_container.grid(row=1, column=0, sticky="nsew", pady=10)
+        
+        self.canvas = tk.Canvas(self.vis_container, bg=Theme.WIDGET_BG, highlightthickness=0, height=250)
+        self.canvas.pack(fill="both", expand=True, padx=20, pady=20)
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
+        self.canvas.bind("<Configure>", lambda e: self.draw_visualizer())
+
+        self.editor_frame = ctk.CTkTabview(self.main_frame, fg_color=Theme.CONTAINER_BG, 
+                                         text_color=Theme.TEXT_PRIMARY,
+                                         segmented_button_fg_color=Theme.WIDGET_BG,
+                                         segmented_button_selected_color=Theme.ACTIVE_BUTTON,
+                                         segmented_button_selected_hover_color=Theme.ACTIVE_BUTTON,
+                                         segmented_button_unselected_color=Theme.WIDGET_BG,
+                                         segmented_button_unselected_hover_color=Theme.BUTTON_HOVER)
+        
+        self.editor_frame.grid(row=2, column=0, sticky="ew", pady=20)
+        
+        self.tab_input = self.editor_frame.add("Input / Macro") 
+        self.tab_media = self.editor_frame.add("Media")
+        self.tab_led = self.editor_frame.add("LED")
+        self.tab_mappings = self.editor_frame.add("App Mappings")
+        
+        self.setup_tab_content()
+
+        self.btn_upload = ctk.CTkButton(self.main_frame, text="UPLOAD CONFIGURATION", 
+                                      font=Theme.FONT_SUBHEADER,
+                                      height=50,
+                                      corner_radius=8,
+                                      fg_color=Theme.WIDGET_BG,
+                                      text_color=Theme.TEXT_DISABLED,
+                                      state="disabled",
+                                      command=self.start_upload)
+        self.btn_upload.grid(row=3, column=0, sticky="ew", pady=(10,0))
+
+    def setup_tab_content(self):
+        input_container = ctk.CTkFrame(self.tab_input, fg_color="transparent")
+        input_container.pack(pady=5, fill="both", expand=True)
+
+        ctk.CTkLabel(input_container, text="Modifiers (Apply to Key & Mouse)", font=("Segoe UI", 12, "bold"), text_color=Theme.TEXT_SECONDARY).pack(pady=(5,0))
+        mod_frame = ctk.CTkFrame(input_container, fg_color="transparent")
+        mod_frame.pack(pady=5)
+        self.var_ctrl = ctk.BooleanVar()
+        self.var_shift = ctk.BooleanVar()
+        self.var_alt = ctk.BooleanVar()
+        self.var_win = ctk.BooleanVar()
+        
+        for t, v in[("Ctrl", self.var_ctrl), ("Shift", self.var_shift), ("Alt", self.var_alt), ("Win", self.var_win)]:
+            ctk.CTkCheckBox(mod_frame, text=t, variable=v, command=lambda: self.store_ui_state("mod"), fg_color=Theme.ACTIVE_BUTTON, text_color=Theme.TEXT_PRIMARY).pack(side="left", padx=10)
+
+        ctk.CTkLabel(input_container, text="Keyboard Key", font=("Segoe UI", 12, "bold"), text_color=Theme.TEXT_SECONDARY).pack(pady=(15,0))
+        self.cb_key = ctk.CTkComboBox(input_container, values=list(KEY_MAP.keys()), state="readonly", width=250, command=lambda v: self.store_ui_state("key"))
+        self.cb_key.pack(pady=5)
+
+        ctk.CTkLabel(input_container, text="--- AND / OR ---", font=("Segoe UI", 10), text_color=Theme.TEXT_DISABLED).pack(pady=5)
+
+        mouse_frame = ctk.CTkFrame(input_container, fg_color="transparent")
+        mouse_frame.pack(pady=5)
+        
+        ctk.CTkLabel(mouse_frame, text="Mouse Button", font=("Segoe UI", 12, "bold"), text_color=Theme.TEXT_SECONDARY).grid(row=0, column=0, padx=10)
+        self.cb_mouse_btn = ctk.CTkComboBox(mouse_frame, values=list(MOUSE_BUTTONS.keys()), state="readonly", width=160, command=lambda v: self.store_ui_state("mouse_btn"))
+        self.cb_mouse_btn.grid(row=1, column=0, padx=10)
+
+        ctk.CTkLabel(mouse_frame, text="Mouse Wheel", font=("Segoe UI", 12, "bold"), text_color=Theme.TEXT_SECONDARY).grid(row=0, column=1, padx=10)
+        self.cb_mouse_scroll = ctk.CTkComboBox(mouse_frame, values=list(MOUSE_WHEEL.keys()), state="readonly", width=160, command=lambda v: self.store_ui_state("mouse_scroll"))
+        self.cb_mouse_scroll.grid(row=1, column=1, padx=10)
+
+        self.cb_media = ctk.CTkComboBox(self.tab_media, values=list(MEDIA_MAP.keys()), state="readonly", width=250, command=lambda v: self.store_ui_state("media"))
+        self.cb_media.pack(pady=30)
+
+        self.cb_led = ctk.CTkComboBox(self.tab_led, values=list(LED_MODES.keys()), state="readonly", width=250, command=self.store_led_state)
+        self.cb_led.pack(pady=30)
+
+        self.mapping_scroll = ctk.CTkScrollableFrame(self.tab_mappings, fg_color="transparent")
+        self.mapping_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        self.refresh_mappings_ui()
+
+    def set_active_as_default(self):
+        if not self.current_preset_name: return
+        self.default_preset_name = self.current_preset_name
+        
+        self.app_mappings["processes"] = {k: v for k, v in self.app_mappings.get("processes", {}).items() if v != self.default_preset_name}
+        
+        new_titles = {}
+        for k, v in self.app_mappings.get("titles", {}).items():
+            preset_name = v["preset"] if isinstance(v, dict) else v
+            if preset_name != self.default_preset_name:
+                new_titles[k] = v
+        self.app_mappings["titles"] = new_titles
+        
+        self.save_mappings_file()
+        self.save_config_state()
+        self.refresh_preset_list()
+        self.refresh_mappings_ui()
+        messagebox.showinfo("Success", f"'{self.default_preset_name}' is now the Default.")
+
+    def refresh_mappings_ui(self):
+        if not self.running or not self.winfo_exists(): return
+        for w in self.mapping_scroll.winfo_children(): w.destroy()
+        
+        has_any = False
+        
+        processes = self.app_mappings.get("processes", {})
+        if processes:
+            ctk.CTkLabel(self.mapping_scroll, text="Application Mappings:", font=("Segoe UI", 12, "bold"), anchor="w").pack(fill="x", pady=(5,0))
+            for app_name, preset_name in list(processes.items()):
+                row = ctk.CTkFrame(self.mapping_scroll, fg_color=Theme.WIDGET_BG)
+                row.pack(fill="x", pady=2, padx=5)
+                ctk.CTkLabel(row, text=app_name, width=200, anchor="w", font=("Segoe UI", 12, "bold")).pack(side="left", padx=10)
+                ctk.CTkLabel(row, text=f"→  {preset_name}", text_color=Theme.TEXT_SECONDARY).pack(side="left", padx=10)
+                ctk.CTkButton(row, text="X", width=30, fg_color="#441111", command=lambda a=app_name: self.remove_mapping("processes", a)).pack(side="right", padx=5)
+            has_any = True
+            
+        titles = self.app_mappings.get("titles", {})
+        if titles:
+            ctk.CTkLabel(self.mapping_scroll, text="Window Title Keyword Mappings:", font=("Segoe UI", 12, "bold"), anchor="w").pack(fill="x", pady=(15,0))
+            for kw, data in list(titles.items()):
+                preset_name = data["preset"] if isinstance(data, dict) else data
+                rule = data.get("rule", "Contains") if isinstance(data, dict) else "Contains"
+                row = ctk.CTkFrame(self.mapping_scroll, fg_color=Theme.WIDGET_BG)
+                row.pack(fill="x", pady=2, padx=5)
+                
+                info_text = f"\"{kw}\" ({rule})"
+                ctk.CTkLabel(row, text=info_text, width=250, anchor="w", font=("Segoe UI", 12, "bold")).pack(side="left", padx=10)
+                ctk.CTkLabel(row, text=f"→  {preset_name}", text_color=Theme.TEXT_SECONDARY).pack(side="left", padx=10)
+                ctk.CTkButton(row, text="X", width=30, fg_color="#441111", command=lambda k=kw: self.remove_mapping("titles", k)).pack(side="right", padx=5)
+            has_any = True
+
+        if not has_any:
+            ctk.CTkLabel(self.mapping_scroll, text="No app mappings yet.", text_color=Theme.TEXT_SECONDARY).pack(pady=20)
+
+    def remove_mapping(self, m_type, key):
+        if m_type in self.app_mappings and key in self.app_mappings[m_type]:
+            del self.app_mappings[m_type][key]
+            self.save_mappings_file()
+            self.refresh_mappings_ui()
+
+    def show_link_dialog(self, app_name, window_title):
+        win = ctk.CTkToplevel(self)
+        win.title("Link Preset")
+        win.geometry("520x450")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.configure(fg_color=Theme.CONTAINER_BG)
+        
+        try:
+            x = self.winfo_x() + (self.winfo_width()//2) - 260
+            y = self.winfo_y() + (self.winfo_height()//2) - 225
+            win.geometry(f"+{x}+{y}")
+        except: pass
+
+        ctk.CTkLabel(win, text="LINK PRESET", font=Theme.FONT_HEADER).pack(pady=(20, 10))
+        ctk.CTkLabel(win, text=f"Target Preset: {self.current_preset_name}", font=("Segoe UI", 12, "bold"), text_color=Theme.CONNECTED_COLOR).pack()
+
+        # Option 1: App Process
+        frm_app = ctk.CTkFrame(win, fg_color=Theme.WIDGET_BG)
+        frm_app.pack(fill="x", padx=20, pady=10)
+        ctk.CTkLabel(frm_app, text="1. Link to Application Process:", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=10, pady=(10, 0))
+        ctk.CTkLabel(frm_app, text=f"Activates whenever '{app_name}' is in focus.", text_color=Theme.TEXT_SECONDARY).pack(anchor="w", padx=10, pady=5)
+        
+        def link_process():
+            self.app_mappings["processes"][app_name] = self.current_preset_name
+            self.save_mappings_file()
+            self.refresh_mappings_ui()
+            win.destroy()
+            messagebox.showinfo("Success", f"Linked '{app_name}' to '{self.current_preset_name}'")
+            
+        ctk.CTkButton(frm_app, text="LINK ENTIRE APP", command=link_process, fg_color=Theme.ACTIVE_BUTTON, text_color="black").pack(pady=10)
+
+        # Option 2: Window Title
+        frm_title = ctk.CTkFrame(win, fg_color=Theme.WIDGET_BG)
+        frm_title.pack(fill="x", padx=20, pady=10)
+        ctk.CTkLabel(frm_title, text="2. Link to Window Title Keyword (e.g. Browser Tabs):", font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=10, pady=(10, 0))
+        
+        display_title = window_title if window_title and len(window_title) < 65 else (window_title[:62] + "...") if window_title else "Unknown"
+        ctk.CTkLabel(frm_title, text=f"Current window: {display_title}", text_color=Theme.TEXT_DISABLED, font=("Segoe UI", 10)).pack(anchor="w", padx=10)
+        
+        input_frm = ctk.CTkFrame(frm_title, fg_color="transparent")
+        input_frm.pack(padx=10, pady=10, fill="x")
+        
+        entry_kw = ctk.CTkEntry(input_frm, placeholder_text="e.g. - YouTube", width=180)
+        entry_kw.pack(side="left", padx=(0, 5), expand=True, fill="x")
+        
+        cb_rule = ctk.CTkOptionMenu(input_frm, values=["Contains", "Regex"], width=100)
+        cb_rule.set("Contains")
+        cb_rule.pack(side="left")
+        
+        def link_title():
+            kw = entry_kw.get().strip()
+            rule = cb_rule.get()
+            if not kw:
+                messagebox.showerror("Error", "Keyword cannot be empty.", parent=win)
+                return
+
+            if rule == "Regex":
+                try:
+                    re.compile(kw)
+                except re.error:
+                    messagebox.showerror("Error", "Invalid Regular Expression.", parent=win)
+                    return
+
+            self.app_mappings["titles"][kw] = {"preset": self.current_preset_name, "rule": rule}
+            self.save_mappings_file()
+            self.refresh_mappings_ui()
+            win.destroy()
+            messagebox.showinfo("Success", f"Linked title '{kw}' ({rule}) to '{self.current_preset_name}'")
+            
+        ctk.CTkButton(frm_title, text="LINK TITLE KEYWORD", command=link_title, fg_color=Theme.ACTIVE_BUTTON, text_color="black").pack(pady=10)
+
+    def link_current_preset_to_app(self):
+        if not self.current_preset_name: return
+        if self.current_preset_name == self.default_preset_name:
+            messagebox.showerror("Error", "The Default Preset cannot be linked to a specific app.")
+            return
+            
+        def delayed_capture():
+            time.sleep(3)
+            app_name, title = self.get_active_window_info()
+            if app_name and app_name.lower() not in["python.exe", "vmacropad.exe"]:
+                self.after(0, lambda: self.show_link_dialog(app_name, title))
+            else:
+                self.after(0, lambda: messagebox.showerror("Error", "Could not identify target app."))
+                
+        messagebox.showinfo("Ready", "Focus target app or browser tab within 3 seconds.")
+        threading.Thread(target=delayed_capture, daemon=True).start()
+
+    def get_active_window_info(self):
+        """Get the currently focused application name and window title (Windows only)."""
+        if not psutil or not win32gui or not win32process: return None, None
+        try:
+            hwnd = win32gui.GetForegroundWindow()  # Get handle of active window
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)  # Get process ID
+            app_name = psutil.Process(pid).name()  # Get process name
+            title = win32gui.GetWindowText(hwnd)  # Get window title
+            return app_name, title
+        except:
+            return None, None
+
+    def app_monitor_loop(self):
+        """Background thread: Monitor active window and auto-switch presets every 1 second."""
+        if not self.running: return
+        
+        # Get currently active application and window title
+        current_app, current_title = self.get_active_window_info()
+        
+        target_preset = None
+        linked_match = False
+        
+        # 1. Check Window Title match first (more specific)
+        if current_title:
+            for keyword, data in self.app_mappings.get("titles", {}).items():
+                preset = data["preset"] if isinstance(data, dict) else data
+                rule = data.get("rule", "Contains") if isinstance(data, dict) else "Contains"
+
+                if rule == "Contains":
+                    if keyword.lower() in current_title.lower():
+                        target_preset = preset
+                        linked_match = True
+                        break
+                elif rule == "Regex":
+                    try:
+                        if re.search(keyword, current_title, re.IGNORECASE):
+                            target_preset = preset
+                            linked_match = True
+                            break
+                    except:
+                        pass
+        
+        # 2. Check Process match if no title match
+        if not linked_match and current_app:
+            if current_app in self.app_mappings.get("processes", {}):
+                target_preset = self.app_mappings["processes"][current_app]
+                linked_match = True
+                
+        # 3. Apply auto-switch logic
+        if linked_match:
+            if self.manual_override:  # User manually selected - don't auto-switch
+                self.manual_override = False
+        else:
+            if self.manual_override:
+                target_preset = self.last_auto_uploaded_preset  # Use last manual selection
+            else:
+                target_preset = self.default_preset_name  # Use default
+
+        # Switch preset if target changed, with debounce
+        if target_preset:
+            if target_preset != self.last_detected_target:
+                self.last_detected_target = target_preset
+                self.focus_timer_start = time.time()  # Start debounce timer
+            else:
+                # Only switch after 0.5 second debounce
+                if (time.time() - self.focus_timer_start) > 0.5:
+                    if target_preset != self.last_auto_uploaded_preset:
+                        if self.pad.is_connected() and not self.is_uploading:
+                            self.last_auto_uploaded_preset = target_preset
+                            self.after(0, self.safe_auto_load, target_preset)
+        
+        self.after(1000, self.app_monitor_loop)  # Check again in 1 second
+
+    def safe_auto_load(self, target_preset):
+        if self.running and self.winfo_exists():
+            # is_auto=True prevents setting manual_override to True
+            self.load_preset_by_name(target_preset, is_auto=True)
+            self.start_upload()
+
+    def load_preset_by_name(self, name, is_auto=False):
+        """Load a preset and update UI."""
+        if name not in self.presets: return
+        
+        # If loaded manually, enable override lock so we don't snap back to Default immediately
+        if not is_auto:
+            self.manual_override = True
+            # Also update last_auto_uploaded so the loop knows where we are
+            self.last_auto_uploaded_preset = name
+            
+        self.current_preset_name = name
+        self.save_config_state()
+        data = self.presets[name]
+        
+        # Load button configurations, handling old format gracefully
+        cleaned_data =[]
+        for d in data["keys"]:
+            new_d = dict(d)
+            if "type" not in new_d: new_d["type"] = "key"
+            if "code" not in new_d: new_d["code"] = 0
+            if "mouse_btn" not in new_d: new_d["mouse_btn"] = 0
+            if "mouse_scroll" not in new_d: new_d["mouse_scroll"] = 0
+            
+            # Handle old mouse format
+            if new_d["type"] == "mouse":
+                if "btn" in new_d: new_d["mouse_btn"] = new_d["btn"]
+                if "scroll" in new_d: new_d["mouse_scroll"] = new_d["scroll"]
+
+            cleaned_data.append(new_d)
+        
+        # Pad with default items if needed (for backward compatibility and new hardware)
+        while len(cleaned_data) < 9:
+            cleaned_data.append({"type": "key", "mod": 0, "code": 0, "mouse_btn": 0, "mouse_scroll": 0})
+            
+        self.current_data = cleaned_data
+        self.led_mode = data.get("led", 1)
+        
+        if self.winfo_exists():
+            self.refresh_preset_list_highlight()
+            self.update_editor_ui()
+            self.draw_visualizer()
+            self.update_tray_icon() 
+        
+        if self.init_complete and self.cfg_notify_preset:
+            msg = f"{name}"
+            if is_auto: msg += " (Auto)"
+            self.notify_user("Preset Changed", msg)
+
+    def refresh_preset_list(self):
+        if not self.running or not self.winfo_exists(): return
+        for w in self.preset_scroll.winfo_children(): w.destroy()
+        self.preset_widgets.clear()
+        for name in self.presets:
+            display_text = f"{name} (DEFAULT)" if name == self.default_preset_name else name
+            btn = ctk.CTkButton(self.preset_scroll, text=display_text, font=Theme.FONT_BODY, height=35, fg_color=Theme.INACTIVE_PILL, hover_color=Theme.BUTTON_HOVER, command=lambda n=name: self.load_preset_by_name(n))
+            btn.pack(fill="x", pady=2)
+            self.preset_widgets[name] = btn
+        self.refresh_preset_list_highlight()
+
+    def refresh_preset_list_highlight(self):
+        if not self.running or not self.winfo_exists(): return
+        for name, btn in self.preset_widgets.items():
+            try:
+                if name == self.current_preset_name:
+                    btn.configure(fg_color=Theme.ACTIVE_BUTTON, text_color=Theme.TEXT_INVERSE)
+                else:
+                    btn.configure(fg_color=Theme.INACTIVE_PILL, text_color=Theme.TEXT_PRIMARY)
+            except: pass
+
+    def create_rounded_rect(self, x1, y1, x2, y2, radius=25, **kwargs):
+        points =[x1+radius, y1, x1+radius, y1, x2-radius, y1, x2-radius, y1, x2, y1, x2, y1+radius, x2, y1+radius, x2, y2-radius, x2, y2-radius, x2, y2, x2-radius, y2, x2-radius, y2, x1+radius, y2, x1+radius, y2, x1, y2, x1, y2-radius, x1, y2-radius, x1, y1+radius, x1, y1+radius, x1, y1]
+        return self.canvas.create_polygon(points, **kwargs, smooth=True)
+
+    def draw_visualizer(self):
+        """Draw the macropad layout visualization (6 buttons + knob)."""
+        if not self.running or not self.winfo_exists(): return
+        self.canvas.delete("all")
+        accent = "#888888"
+        if self.current_preset_name in self.presets:
+            accent = self.presets[self.current_preset_name].get("color", "#888888")
+        
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        if w < 10: return
+        
+        cx, cy = w // 2, h // 2
+        key_size = 70
+        gap = 25
+        
+        # 2x3 grid layout for 6 buttons on the left
+        total_width = (3 * key_size) + (2 * gap)
+        btn_height = (2 * key_size) + gap
+        start_x = cx - (total_width / 2) - 100
+        start_y = cy - (btn_height / 2)
+        
+        # Draw 6 buttons
+        for i in range(6):
+            row = i // 3  # Which row (0-1)
+            col = i % 3   # Which column (0-2)
+            x = start_x + (col * (key_size + gap))
+            y = start_y + (row * (key_size + gap))
+            
+            # Highlight selected button
+            is_sel = (i == self.selected_key_index)
+            fill = accent if is_sel else Theme.CONTAINER_BG
+            outline = "#ffffff" if is_sel else "#333333"
+            width = 3 if is_sel else 2
+            
+            tag = f"key_{i}"
+            self.create_rounded_rect(x, y, x+key_size, y+key_size, radius=12, fill=fill, outline=outline, width=width, tags=tag)
+            text_color = Theme.TEXT_INVERSE if (is_sel and not self.is_dark(accent)) else Theme.TEXT_PRIMARY
+            self.canvas.create_text(x + key_size/2, y + key_size/2, text=str(i+1), fill=text_color, font=("Segoe UI", 20, "bold"), tags=tag)
+        
+        # Draw knob on the right
+        knob_x = cx + 150
+        knob_y = cy
+        knob_r = 50
+        is_ccw = (self.selected_key_index == 6)  # Counter-clockwise
+        is_cw = (self.selected_key_index == 7)   # Clockwise
+        is_press = (self.selected_key_index == 8) # Press/click
+        
+        # Draw knob background circle
+        self.canvas.create_oval(knob_x-knob_r, knob_y-knob_r, knob_x+knob_r, knob_y+knob_r, fill=Theme.CONTAINER_BG, outline="#333333", width=2)
+        # Draw left half (CCW) with accent if selected
+        self.canvas.create_arc(knob_x-knob_r, knob_y-knob_r, knob_x+knob_r, knob_y+knob_r, start=90, extent=180, fill=accent if is_ccw else "#444444", style=tk.PIESLICE)
+        # Draw right half (CW) with accent if selected
+        self.canvas.create_arc(knob_x-knob_r, knob_y-knob_r, knob_x+knob_r, knob_y+knob_r, start=270, extent=180, fill=accent if is_cw else "#444444", style=tk.PIESLICE)
+        # Draw center press button
+        self.canvas.create_oval(knob_x-25, knob_y-25, knob_x+25, knob_y+25, fill=Theme.CONTAINER_BG, outline="#222")
+        self.canvas.create_oval(knob_x-18, knob_y-18, knob_x+18, knob_y+18, fill=accent if is_press else "#222222", outline="white" if is_press else "#555")
+        # Draw CCW/CW labels
+        self.canvas.create_text(knob_x-65, knob_y, text="CCW", fill=Theme.TEXT_SECONDARY, font=("Segoe UI", 10, "bold"), anchor="e")
+        self.canvas.create_text(knob_x+65, knob_y, text="CW", fill=Theme.TEXT_SECONDARY, font=("Segoe UI", 10, "bold"), anchor="w")
+
+    def is_dark(self, hex_color):
+        """Determine if a hex color is dark (for text contrast)."""
+        if not hex_color.startswith('#'): return True
+        h = hex_color.lstrip('#')
+        try:
+            rgb = tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+            # Calculate luminance using standard formula
+            return (rgb[0]*0.299 + rgb[1]*0.587 + rgb[2]*0.114) < 140
+        except: return True
+
+    def on_canvas_click(self, event):
+        """Handle mouse clicks on the visualizer to select buttons/knob."""
+        if self.is_uploading or not self.winfo_exists(): return
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        cx, cy = w // 2, h // 2
+        key_size = 70
+        gap = 25
+        
+        # 2x3 grid layout for 6 buttons on the left
+        total_width = (3 * key_size) + (2 * gap)
+        btn_height = (2 * key_size) + gap
+        start_x = cx - (total_width / 2) - 100
+        start_y = cy - (btn_height / 2)
+        
+        # Check if clicked on any of the 6 buttons
+        for i in range(6):
+            row = i // 3
+            col = i % 3
+            kx = start_x + (col * (key_size + gap))
+            ky = start_y + (row * (key_size + gap))
+            if kx <= event.x <= kx+key_size and ky <= event.y <= ky+key_size:
+                self.selected_key_index = i
+                self.update_editor_ui()
+                self.draw_visualizer()
+                return
+        
+        # Check if clicked on knob on the right
+        knob_x = cx + 150
+        knob_y = cy
+        dx = event.x - knob_x
+        dy = event.y - knob_y
+        dist = math.sqrt(dx*dx + dy*dy)
+        if dist <= 18:  # Center press button
+            self.selected_key_index = 8
+        elif dist <= 50:  # Knob outer area
+            self.selected_key_index = 6 if dx < 0 else 7  # CCW or CW
+        
+        self.update_editor_ui()
+        self.draw_visualizer()
+
+    def update_editor_ui(self):
+        if not self.running or not self.winfo_exists(): return
+        self._updating_ui = True
+        try:
+            d = self.current_data[self.selected_key_index]
+            dtype = d.get("type", "key")
+            
+            if dtype == "media":
+                self.editor_frame.set("Media")
+                self.cb_media.set(next((k for k,v in MEDIA_MAP.items() if v == (d.get("b1", 0), d.get("b2", 0))), "None"))
+            else:
+                self.editor_frame.set("Input / Macro")
+                mod = d.get("mod", 0)
+                self.var_ctrl.set(bool(mod & 1))
+                self.var_shift.set(bool(mod & 2))
+                self.var_alt.set(bool(mod & 4))
+                self.var_win.set(bool(mod & 8))
+                
+                code = d.get("code", 0)
+                self.cb_key.set(next((k for k,v in KEY_MAP.items() if v == code), "None"))
+                
+                m_btn = d.get("mouse_btn", 0)
+                m_scr = d.get("mouse_scroll", 0)
+                self.cb_mouse_btn.set(next((k for k,v in MOUSE_BUTTONS.items() if v == m_btn), "None"))
+                self.cb_mouse_scroll.set(next((k for k,v in MOUSE_WHEEL.items() if v == m_scr), "None"))
+            
+            self.cb_led.set(next((k for k,v in LED_MODES.items() if v == self.led_mode), "Static"))
+        except: pass
+        finally:
+            self._updating_ui = False
+
+    def store_ui_state(self, source=None):
+        """Save current UI selections to current_data (called on any UI change)."""
+        if not self.running or self.is_uploading or getattr(self, '_updating_ui', False): return
+        tab = self.editor_frame.get()  # Which tab is active
+        idx = self.selected_key_index  # Which button is selected
+        
+        if tab == "Input / Macro":
+            # Build modifier byte (bits for Ctrl, Shift, Alt, Win)
+            mod = (1 if self.var_ctrl.get() else 0) | (2 if self.var_shift.get() else 0) | (4 if self.var_alt.get() else 0) | (8 if self.var_win.get() else 0)
+            
+            # If user selected a key, clear mouse selections
+            if source == "key":
+                self.cb_mouse_btn.set("None")
+                self.cb_mouse_scroll.set("None")
+            # If user selected mouse control, clear key selection
+            elif source in ("mouse_btn", "mouse_scroll"):
+                self.cb_key.set("None")
+
+            # Get values from UI
+            key_code = KEY_MAP.get(self.cb_key.get(), 0)
+            mouse_btn = MOUSE_BUTTONS.get(self.cb_mouse_btn.get(), 0)
+            mouse_scroll = MOUSE_WHEEL.get(self.cb_mouse_scroll.get(), 0)
+            
+            # Determine action type
+            t = "key"
+            if mouse_btn != 0 or mouse_scroll != 0:
+                t = "mouse"
+                
+            self.current_data[idx] = {
+                "type": t,
+                "mod": mod,
+                "code": key_code,
+                "mouse_btn": mouse_btn,
+                "mouse_scroll": mouse_scroll
+            }
+                
+        elif tab == "Media":
+            # Store media control action
+            b1, b2 = MEDIA_MAP.get(self.cb_media.get(), (0,0))
+            self.current_data[idx] = {"type": "media", "b1": b1, "b2": b2}
+            
+        # Save to preset file immediately
+        if self.current_preset_name in self.presets:
+            self.presets[self.current_preset_name]["keys"] = [dict(x) for x in self.current_data]
+            self.save_presets_file()
+
+    def store_led_state(self, value=None):
+        """Save LED mode selection."""
+        self.led_mode = LED_MODES.get(self.cb_led.get(), 1)
+        if self.current_preset_name in self.presets:
+            self.presets[self.current_preset_name]["led"] = self.led_mode
+            self.save_presets_file()
+
+    def add_preset(self):
+        """Create and save a new preset with current configuration."""
+        name = ctk.CTkInputDialog(text="Preset Name:", title="Save").get_input()
+        if not name: return
+        color = colorchooser.askcolor()[1] or "#888888"  # Let user pick a color
+        self.presets[name] = {"keys":[dict(x) for x in self.current_data], "led": self.led_mode, "color": color}
+        self.save_presets_file()
+        self.refresh_preset_list()
+        self.load_preset_by_name(name)
+
+    def del_preset(self):
+        """Delete currently selected preset."""
+        if self.current_preset_name in self.presets:
+            if self.current_preset_name == self.default_preset_name:
+                self.default_preset_name = None  # Clear default if deleting default preset
+            del self.presets[self.current_preset_name]
+            self.save_presets_file()
+            self.current_preset_name = None
+            self.refresh_preset_list()
+            if self.presets:
+                self.load_preset_by_name(list(self.presets.keys())[0])  # Load first preset
+
+    def start_upload(self):
+        """Queue configuration upload to device."""
+        if self.is_uploading: return
+        if self.pad.is_connected():
+            self.set_blocking_state(True)  # Disable UI during upload
+            threading.Thread(target=self._upload_thread, daemon=True).start()
+
+    def _upload_thread(self):
+        """Background thread that uploads button/knob configuration to device."""
+        with self.upload_lock:
+            try:
+                self.pad.select_layer(0)  # Select layer 0
+                time.sleep(0.05)
+                # Upload each of 9 actions
+                for i, d in enumerate(self.current_data):
+                    t = d.get("type")
+                    if t == "key": 
+                        self.pad.set_key(i, d.get("mod", 0), d.get("code", 0))
+                    elif t == "media": 
+                        self.pad.set_media(i, d.get("b1", 0), d.get("b2", 0))
+                    elif t == "mouse": 
+                        self.pad.set_mouse(i, d.get("mouse_btn", 0), d.get("mouse_scroll", 0), d.get("mod", 0))
+                    time.sleep(0.02)  # Small delay between commands
+                self.pad.set_led(self.led_mode)  # Set LED mode
+                self.pad.save_to_flash()  # Save to device flash
+            except Exception as e:
+                print(f"Upload Error: {e}")
+                self.after(0, self.upload_finished, False)
+            else:
+                self.after(0, self.upload_finished, True)
+
+    def upload_finished(self, success):
+        """Called when upload completes."""
+        self.set_blocking_state(False)  # Re-enable UI
+        if not success:
+            if self.running and self.winfo_exists():
+                if not self.last_auto_uploaded_preset: 
+                    messagebox.showerror("Error", "Upload failed.")
+
+    def set_blocking_state(self, b):
+        """Disable/enable UI when uploading."""
+        if not self.running or not self.winfo_exists(): return
+        self.is_uploading = b
+        s = "disabled" if b else "normal"
+        try:
+            self.btn_upload.configure(state=s, text="UPLOADING..." if b else "UPLOAD CONFIGURATION")
+            self.btn_add.configure(state=s)
+            self.btn_del.configure(state=s)
+            for btn in self.preset_widgets.values(): btn.configure(state=s)
+        except: pass
+
+    def check_conn_loop(self):
+        """Background thread: Monitor device connection status every 2 seconds."""
+        if not self.running: return
+        p = self.pad.scan_for_device()
+        if p and not self.pad.is_connected():
+            self.pad.connect()  # Device found but not connected - connect
+        elif not p and self.pad.is_connected():
+            self.pad.device = None  # Device not found but marked connected - disconnect
+            self.pad._connected = False
+        
+        # Update UI if connection status changed
+        if self.pad.is_connected() != self.connected_last_frame:
+            self.connected_last_frame = self.pad.is_connected()
+            self.after(0, self.safe_update_status, self.connected_last_frame)
+        
+        self.after(2000, self.check_conn_loop)  # Check again in 2 seconds
+
+    def update_status_ui(self, c):
+        """Update status display when connection changes."""
+        if not self.running or not self.winfo_exists(): return
+        self.update_tray_icon() 
+        try:
+            # Update status indicator
+            self.lbl_status_icon.configure(text_color=Theme.CONNECTED_COLOR if c else Theme.DISCONNECTED_COLOR)
+            self.lbl_status_text.configure(text="CONNECTED" if c else "DISCONNECTED", 
+                                           text_color=Theme.TEXT_PRIMARY if c else Theme.TEXT_SECONDARY)
+            # Update upload button
+            self.btn_upload.configure(state="normal" if c else "disabled", 
+                                      fg_color=Theme.CONNECTED_COLOR if c else Theme.WIDGET_BG, 
+                                      text_color="black" if c else Theme.TEXT_DISABLED)
+            
+            # Notify user if enabled
+            if self.init_complete and self.cfg_notify_status:
+                self.notify_user("Device Status", "Macropad Connected" if c else "Macropad Disconnected")
+
+            # Auto-upload preset when device connects
+            if c and self.current_preset_name:
+                self.start_upload()
+        except: pass
+
+    def setup_tray(self):
+        if self.cfg_tray_enabled and not self.tray_icon:
+            self.update_tray_icon()
+    
+    def update_tray_icon(self):
+        if not self.running or not self.cfg_tray_enabled: return
+        
+        color = "#888888"
+        if self.pad.is_connected() and self.current_preset_name in self.presets:
+            color = self.presets[self.current_preset_name].get("color", "#888888")
+        
+        img = Image.new('RGBA', (64, 64), (0,0,0,0))
+        d = ImageDraw.Draw(img)
+        
+        if not self.pad.is_connected():
+            d.rounded_rectangle([2, 2, 62, 62], 16, fill="black", outline="#ff3d00", width=4)
+            d.line((18, 18, 46, 46), fill="#ff3d00", width=6)
+            d.line((46, 18, 18, 46), fill="#ff3d00", width=6)
+        else:
+            d.rounded_rectangle([2, 2, 62, 62], 16, fill=color, outline=color, width=0)
+            d.line((16, 20, 32, 48), fill="white", width=6)
+            d.line((32, 48, 48, 20), fill="white", width=6)
+        
+        if self.tray_icon:
+            self.tray_icon.icon = img
+            self.tray_icon.menu = self.create_tray_menu()
+        else:
+            self.tray_icon = pystray.Icon("VMacropad", img, "V Macropad", self.create_tray_menu())
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def _make_tray_action(self, name):
+        # Returns a function with signature (icon, item)
+        return lambda icon, item: self.tray_activate_preset(name)
+
+    def _make_tray_check(self, name):
+        # Returns a function with signature (item)
+        return lambda item: self.current_preset_name == name
+
+    def create_tray_menu(self):
+        items =[pystray.MenuItem("Open", self.show_window_tray, default=True), pystray.Menu.SEPARATOR]
+        for name in self.presets:
+            items.append(pystray.MenuItem(
+                name, 
+                self._make_tray_action(name), 
+                checked=self._make_tray_check(name)
+            ))
+        items.append(pystray.Menu.SEPARATOR)
+        items.append(pystray.MenuItem("Quit", self.quit_app))
+        return pystray.Menu(*items)
+
+    def tray_activate_preset(self, name):
+        if not self.running or self.is_uploading: return
+        self.last_auto_uploaded_preset = name
+        self.after(0, self.safe_tray_load, name)
+
+    def safe_tray_load(self, name):
+        if self.running and self.winfo_exists():
+            self.load_preset_by_name(name)
+            self.start_upload()
+
+    def show_window_tray(self, icon=None, item=None):
+        if self.running:
+            self.after(0, self.deiconify)
+
+    def on_close_attempt(self):
+        """Handle window close button."""
+        if self.cfg_tray_enabled:
+            self.withdraw()  # Hide to tray instead of closing
+        else:
+            self.quit_app()  # Quit application
+
+    def quit_app(self, icon=None, item=None):
+        """Stop running and shut down application."""
+        self.running = False
+        self.after(0, self._perform_shutdown)
+
+    def _perform_shutdown(self):
+        """Perform cleanup and exit."""
+        if self.tray_icon:
+            self.tray_icon.stop()  # Stop tray icon
+        self.destroy()  # Destroy window
+        os._exit(0)  # Force exit
+
+if __name__ == "__main__":
+    app = VMacroApp()
+    app.mainloop()
