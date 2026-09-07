@@ -6,7 +6,7 @@ I'm a passionate builder and developer who loves bringing creative ideas to life
 
 ### 🛠️ What I Do
 
-* **Game Development:** Experienced with **Godot** and **GDScript**. I've created and published several games on my Itch.io page.
+* **Game Development:** Experienced with **Godot** and **GDScript**. I've created and published several smaller games on my Itch.io page.
 * **Programming:** Comfortable writing **Python** for scripts, tools, and general projects.
 * **3D Modeling:** Hands-on experience using **Blender** to create 3D assets and visual elements.
 * **Electronics & Hardware:** Built small-scale DIY projects using **Arduino** and **ESP** microcontrollers.
