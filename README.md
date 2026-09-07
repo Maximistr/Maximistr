@@ -16,13 +16,13 @@ I'm a passionate builder and developer who loves bringing creative ideas to life
 
 ### 📬 Connect With Me
 
-<a href="https://yourusername.itch.io">
+<a href="https://maximistr.itch.io/">
   <img src="https://img.shields.io/badge/Itch.io-FA5C5C?style=for-the-badge&logo=itch.io&logoColor=white" alt="Itch.io" />
 </a>
-<a href="https://discord.com/users/YOUR_DISCORD_ID">
+<a href="https://discord.com/users/maximistr_">
   <img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" />
 </a>
-<a href="mailto:your.email@example.com">
+<a href="mailto:martynek.max@gmail.com">
   <img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" />
 </a>
 
